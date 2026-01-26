@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Roadtex - Tap to Fill</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #0f1117;
+            --bg-card: #1a1d27;
+            --accent-red: #e63946;
+            --accent-blue: #4895ef;
+            --accent-green: #2ec4b6;
+            --text-primary: #ffffff;
+            --text-secondary: #8b8fa3;
+            --border-color: #2a2e3b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-card);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--accent-red);
+        }
+
+        .doc-name {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-secondary {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .btn-primary {
+            background: var(--accent-green);
+            color: white;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+            transform: scale(1.02);
+        }
+
+        /* Document Tabs */
+        .doc-tabs {
+            display: none;
+            /* Hidden - using single document upload */
+        }
+
+        .doc-tab {
+            padding: 8px 16px;
+            background: var(--border-color);
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+
+        .doc-tab.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        /* Document Viewer */
+        .doc-viewer {
+            position: fixed;
+            top: 53px;
+            /* Adjusted since tabs are hidden */
+            left: 0;
+            right: 0;
+            bottom: 60px;
+            overflow: auto;
+            background: #2a2a2a;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        .doc-container {
+            position: relative;
+            background: white;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+            cursor: crosshair;
+            transition: transform 0.3s ease;
+            transform-origin: top center;
+            margin: 0 auto;
+        }
+
+        .doc-image {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            pointer-events: none;
+            transition: transform 0.3s ease;
+        }
+
+        .pdf-viewer {
+            width: 100%;
+            min-height: 800px;
+            border: none;
+            background: white;
+            transition: transform 0.3s ease;
+        }
+
+        /* Annotations Layer */
+        .annotations-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        .annotation {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            cursor: move;
+            user-select: none;
+        }
+
+        .annotation.checkmark {
+            font-size: 12px;
+            color: #1557b0;
+            font-weight: bold;
+        }
+
+        .annotation.text {
+            font-family: 'Caveat', cursive;
+            font-size: 12px;
+            color: #1a1a1a;
+            white-space: nowrap;
+        }
+
+        .annotation.signature {
+            font-family: 'Caveat', cursive;
+            font-size: 12px;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .annotation.date {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: #1a1a1a;
+        }
+
+        .annotation.time {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: #1a1a1a;
+            font-weight: 500;
+        }
+
+        .annotation .delete-btn {
+            position: absolute;
+            top: -12px;
+            right: -12px;
+            width: 24px;
+            height: 24px;
+            background: var(--accent-red);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 14px;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .annotation .resize-controls {
+            position: absolute;
+            bottom: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 4px;
+            background: var(--bg-card);
+            padding: 4px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .annotation.selected {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 4px;
+            border-radius: 4px;
+        }
+
+        .annotation.selected .resize-controls {
+            display: flex;
+        }
+
+        .annotation.selected .delete-btn {
+            display: flex;
+        }
+
+        .resize-btn {
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 4px;
+            background: var(--border-color);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .resize-btn:hover {
+            background: var(--accent-blue);
+            transform: scale(1.05);
+        }
+
+        .annotation:hover .delete-btn {
+            display: flex;
+        }
+
+        /* Action Menu */
+        .action-menu {
+            position: fixed;
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            z-index: 200;
+            display: none;
+            min-width: 160px;
+        }
+
+        .action-menu.show {
+            display: block;
+            animation: popIn 0.15s ease;
+        }
+
+        #dateSubmenu,
+        #timeSubmenu {
+            z-index: 201;
+        }
+
+        @keyframes popIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .action-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 8px;
+            width: 100%;
+            text-align: left;
+            transition: all 0.1s;
+        }
+
+        .action-item:hover {
+            background: var(--border-color);
+        }
+
+        .action-icon {
+            font-size: 20px;
+        }
+
+        /* Input Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 300;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-size: 16px;
+            margin-bottom: 16px;
+        }
+
+        .modal-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        /* Bottom Bar */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-card);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .hint {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .hint strong {
+            color: var(--accent-blue);
+        }
+
+        .counter {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .counter strong {
+            color: var(--accent-green);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--accent-green);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 400;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* Mobile friendly */
+        @media (max-width: 600px) {
+            .doc-viewer {
+                padding: 10px;
+            }
+
+            .header {
+                padding: 10px 15px;
+            }
+
+            .doc-tabs {
+                padding: 8px 15px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">Roadtex</div>
+            <div class="doc-name" id="docName">No document uploaded</div>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-secondary" onclick="createNewDoc()">➕ New</button>
+            <button class="btn btn-secondary" onclick="deleteDoc()" id="deleteBtn" style="display: none;">🗑️
+                Delete</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">📤 Upload</button>
+            <button class="btn btn-secondary" onclick="zoomOut()">🔍− Zoom Out</button>
+            <button class="btn btn-secondary" onclick="resetZoom()">🔍 Reset</button>
+            <button class="btn btn-secondary" onclick="zoomIn()">🔍+ Zoom In</button>
+            <button class="btn btn-secondary" onclick="rotateDocument()">🔄 Rotate</button>
+            <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
+            <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+            <button class="btn btn-secondary" onclick="shareDocument()">🔗 Share</button>
+            <button class="btn btn-primary" onclick="saveDoc()">💾 Save</button>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp" style="display: none;"
+            onchange="handleFileUpload(event)">
+    </header>
+
+    <!-- Document Tabs - Removed for single document upload -->
+
+    <!-- Document Viewer -->
+    <div class="doc-viewer">
+        <div class="doc-container" id="docContainer">
+            <img src="" alt="Document" class="doc-image" id="docImage">
+            <div class="annotations-layer" id="annotationsLayer"></div>
+        </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+        <div class="hint">👆 <strong>Tap anywhere</strong> on the document to add</div>
+        <div class="counter"><strong id="annotationCount">0</strong> items added</div>
+    </div>
+
+    <!-- Action Menu -->
+    <div class="action-menu" id="actionMenu">
+        <button class="action-item" onclick="addAnnotation('checkmark')">
+            <span class="action-icon">✓</span> Checkmark
+        </button>
+        <button class="action-item" onclick="addAnnotation('text')">
+            <span class="action-icon">✏️</span> Type Text
+        </button>
+        <button class="action-item" onclick="addAnnotation('signature')">
+            <span class="action-icon">🖊️</span> Sign
+        </button>
+        <button class="action-item" onclick="showDateOptions()">
+            <span class="action-icon">📅</span> Add Date
+        </button>
+        <button class="action-item" onclick="showTimeOptions()">
+            <span class="action-icon">🕐</span> Add Time
+        </button>
+    </div>
+
+    <!-- Date Submenu -->
+    <div class="action-menu" id="dateSubmenu">
+        <button class="action-item" onclick="addDate('today')">
+            <span class="action-icon">📅</span> Today's Date
+        </button>
+        <button class="action-item" onclick="addDate('select')">
+            <span class="action-icon">📆</span> Select Date
+        </button>
+    </div>
+
+    <!-- Time Submenu -->
+    <div class="action-menu" id="timeSubmenu">
+        <button class="action-item" onclick="addTime('now')">
+            <span class="action-icon">🕐</span> Time Now
+        </button>
+        <button class="action-item" onclick="addTime('manual')">
+            <span class="action-icon">⌨️</span> Input Time Manually
+        </button>
+    </div>
+
+    <!-- Text Input Modal -->
+    <div class="modal-overlay" id="textModal">
+        <div class="modal">
+            <div class="modal-title" id="modalTitle">Enter Text</div>
+            <input type="text" class="modal-input" id="modalInput" placeholder="Type here...">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmText()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Date Picker Modal -->
+    <div class="modal-overlay" id="dateModal">
+        <div class="modal">
+            <div class="modal-title">Select Date</div>
+            <input type="date" class="modal-input" id="dateInput">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeDateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmDate()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Time Input Modal -->
+    <div class="modal-overlay" id="timeModal">
+        <div class="modal">
+            <div class="modal-title">Enter Time</div>
+            <input type="time" class="modal-input" id="timeInput">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeTimeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmTime()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Name Modal -->
+    <div class="modal-overlay" id="userNameModal">
+        <div class="modal">
+            <div class="modal-title">Enter Your Name</div>
+            <input type="text" class="modal-input" id="userNameInput" placeholder="Your name..." maxlength="20">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeUserNameModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveUserName()">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div class="modal-overlay" id="shareModal">
+        <div class="modal">
+            <div class="modal-title">Share Document</div>
+            <div style="margin-bottom: 16px; color: var(--text-secondary); font-size: 14px;">
+                Share this link with others to collaborate in real-time:
+            </div>
+            <input type="text" class="modal-input" id="shareLinkInput" readonly
+                style="background: var(--bg-dark); cursor: text;">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="copyShareLink()">📋 Copy Link</button>
+                <button class="btn btn-primary" onclick="closeShareModal()">Close</button>
+            </div>
+            <div id="collaboratorsList"
+                style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Active collaborators:
+                </div>
+                <div id="collaboratorsContainer" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collaboration Status -->
+    <div id="collabStatus"
+        style="position: fixed; top: 53px; right: 20px; background: var(--bg-card); padding: 8px 12px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); z-index: 99; display: none;">
+        <span id="collabStatusText">● Connecting...</span>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+
+        let annotations = []; // Single document annotations
+        let clickX = 0;
+        let clickY = 0;
+        let pendingType = null;
+        let rotation = 0; // Rotation in degrees (0, 90, 180, 270)
+        let selectedAnnotationIndex = null; // Currently selected annotation
+        let zoomLevel = 1; // Zoom level (1 = 100%, 1.5 = 150%, etc.)
+
+        // Collaboration variables
+        let currentDocumentId = null;
+        let userName = null;
+        let userId = null;
+        let uploadedFileData = null; // Store uploaded file data
+        let isSyncing = false; // Prevent sync loops
+        let db = null; // Firebase Firestore instance
+        let unsubscribeListener = null; // Real-time listener
+
+        // Initialize
+        // Initialize Firebase (using demo config - replace with your Firebase config)
+        function initFirebase() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyDjxx51MsXKHMS0qXLU2-YnSj3DWUI0ejE",
+                authDomain: "virtualclass-d1fab.firebaseapp.com",
+                projectId: "virtualclass-d1fab",
+                storageBucket: "virtualclass-d1fab.firebasestorage.app",
+                messagingSenderId: "956945996428",
+                appId: "1:956945996428:web:e320f2fd95dc11d8c679a9"
+            };
+
+            // Initialize Firebase
+            if (typeof firebase !== 'undefined') {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                updateCollabStatus('● Ready (Demo Mode)', '#2ec4b6');
+            } else {
+                console.warn('Firebase not loaded - using local storage fallback');
+                updateCollabStatus('● Offline Mode', '#8b8fa3');
+            }
+        }
+
+        // Check for document ID in URL
+        function getDocumentIdFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('doc');
+        }
+
+        // Generate unique document ID
+        function generateDocumentId() {
+            return 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Firebase
+            initFirebase();
+
+            // Check for user name in localStorage
+            userName = localStorage.getItem('roadtex_userName');
+            userId = localStorage.getItem('roadtex_userId') || generateUserId();
+            if (!userId) {
+                userId = generateUserId();
+                localStorage.setItem('roadtex_userId', userId);
+            }
+
+            // Check if we have a document ID in URL
+            const urlDocId = getDocumentIdFromURL();
+            if (urlDocId) {
+                currentDocumentId = urlDocId;
+                loadDocumentFromFirebase(urlDocId);
+            } else {
+                // Fallback to last local session
+                loadFromLocalStorage();
+                updateCollabStatus('● Local Mode (Restored)', '#8b8fa3');
+
+                // Check for user name, prompt if not set
+                if (!userName) {
+                    document.getElementById('userNameModal').classList.add('show');
+                    document.getElementById('userNameInput').focus();
+                }
+            }
+
+            // Start with empty document
+            renderAnnotations();
+
+            // Click on document to add annotation
+            document.getElementById('docContainer').addEventListener('click', handleDocClick);
+
+            // Mouse wheel zoom (with Ctrl/Cmd key)
+            document.getElementById('docContainer').addEventListener('wheel', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    if (e.deltaY < 0) {
+                        zoomIn();
+                    } else {
+                        zoomOut();
+                    }
+                }
+            }, { passive: false });
+
+            // Close menu when clicking elsewhere
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.action-menu') && !e.target.closest('.doc-container')) {
+                    hideMenu();
+                }
+            });
+
+            // Enter key in modals
+            document.getElementById('modalInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') confirmText();
+            });
+
+            document.getElementById('dateInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') confirmDate();
+            });
+
+            document.getElementById('timeInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') confirmTime();
+            });
+
+            document.getElementById('userNameInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') saveUserName();
+            });
+        });
+
+        function applyTransform() {
+            const docContainer = document.getElementById('docContainer');
+            const docViewer = docContainer.closest('.doc-viewer');
+            const transform = `scale(${zoomLevel}) rotate(${rotation}deg)`;
+            docContainer.style.transform = transform;
+
+            // When zoomed in, ensure we can scroll to see all content
+            // Add padding to the container to account for zoom scale
+            if (zoomLevel > 1) {
+                // Calculate how much extra space we need
+                const scale = zoomLevel;
+                const containerRect = docContainer.getBoundingClientRect();
+                // The visual size is scale * actual size, but layout size stays the same
+                // We need to ensure the viewer can scroll to accommodate the visual size
+                // This is handled by the transform-origin: top center, which keeps content anchored at top
+            }
+        }
+
+        function zoomIn() {
+            zoomLevel = Math.min(3, zoomLevel + 0.25); // Max 300%
+            applyTransform();
+            // Ensure we can scroll to top after zooming
+            const docViewer = document.getElementById('docContainer').closest('.doc-viewer');
+            if (docViewer) {
+                setTimeout(() => {
+                    docViewer.scrollTop = 0;
+                }, 50);
+            }
+            showToast(`🔍 Zoom: ${Math.round(zoomLevel * 100)}%`);
+        }
+
+        function zoomOut() {
+            zoomLevel = Math.max(0.5, zoomLevel - 0.25); // Min 50%
+            applyTransform();
+            showToast(`🔍 Zoom: ${Math.round(zoomLevel * 100)}%`);
+        }
+
+        function resetZoom() {
+            zoomLevel = 1;
+            applyTransform();
+            // Scroll to top when resetting
+            const docViewer = document.getElementById('docContainer').closest('.doc-viewer');
+            if (docViewer) {
+                setTimeout(() => {
+                    docViewer.scrollTop = 0;
+                }, 50);
+            }
+            showToast('🔍 Zoom reset');
+        }
+
+        function resetRotation() {
+            rotation = 0;
+            applyTransform();
+        }
+
+        function handleDocClick(e) {
+            // Don't show menu if clicking on an annotation
+            if (e.target.closest('.annotation')) {
+                return;
+            }
+
+            // Close any open submenus
+            hideMenu();
+
+            // Deselect any selected annotation
+            selectedAnnotationIndex = null;
+            renderAnnotations();
+
+            const container = document.getElementById('docContainer');
+            const rect = container.getBoundingClientRect();
+
+            // Calculate position as percentage
+            clickX = ((e.clientX - rect.left) / rect.width) * 100;
+            clickY = ((e.clientY - rect.top) / rect.height) * 100;
+
+            // Show action menu at click position
+            showMenu(e.clientX, e.clientY);
+        }
+
+        function showMenu(x, y) {
+            const menu = document.getElementById('actionMenu');
+
+            // Position menu
+            let menuX = x + 10;
+            let menuY = y + 10;
+
+            // Keep menu on screen
+            if (menuX + 170 > window.innerWidth) menuX = x - 170;
+            if (menuY + 200 > window.innerHeight) menuY = y - 200;
+
+            menu.style.left = menuX + 'px';
+            menu.style.top = menuY + 'px';
+            menu.classList.add('show');
+        }
+
+        function hideMenu() {
+            document.getElementById('actionMenu').classList.remove('show');
+            document.getElementById('dateSubmenu').classList.remove('show');
+            document.getElementById('timeSubmenu').classList.remove('show');
+        }
+
+        function showDateOptions() {
+            const mainMenu = document.getElementById('actionMenu');
+            const submenu = document.getElementById('dateSubmenu');
+            const rect = mainMenu.getBoundingClientRect();
+
+            let submenuX = rect.right + 10;
+            let submenuY = rect.top;
+
+            // Keep submenu on screen
+            if (submenuX + 170 > window.innerWidth) {
+                submenuX = rect.left - 170;
+            }
+            if (submenuY + 150 > window.innerHeight) {
+                submenuY = window.innerHeight - 150;
+            }
+
+            submenu.style.left = submenuX + 'px';
+            submenu.style.top = submenuY + 'px';
+            submenu.classList.add('show');
+        }
+
+        function showTimeOptions() {
+            const mainMenu = document.getElementById('actionMenu');
+            const submenu = document.getElementById('timeSubmenu');
+            const rect = mainMenu.getBoundingClientRect();
+
+            let submenuX = rect.right + 10;
+            let submenuY = rect.top;
+
+            // Keep submenu on screen
+            if (submenuX + 170 > window.innerWidth) {
+                submenuX = rect.left - 170;
+            }
+            if (submenuY + 150 > window.innerHeight) {
+                submenuY = window.innerHeight - 150;
+            }
+
+            submenu.style.left = submenuX + 'px';
+            submenu.style.top = submenuY + 'px';
+            submenu.classList.add('show');
+        }
+
+        function addAnnotation(type) {
+            hideMenu();
+            selectedAnnotationIndex = null; // Clear selection when adding new annotation
+
+            if (type === 'checkmark') {
+                // Add checkmark immediately
+                annotations.push({
+                    type: 'checkmark',
+                    x: clickX,
+                    y: clickY,
+                    value: '✓',
+                    fontSize: 12
+                });
+                renderAnnotations();
+                saveToLocalStorage();
+                showToast('✓ Checkmark added');
+            }
+            // Date and time are handled separately via submenus
+            else if (type === 'text') {
+                pendingType = 'text';
+                document.getElementById('modalTitle').textContent = 'Enter Text';
+                document.getElementById('modalInput').placeholder = 'Type here...';
+                document.getElementById('modalInput').value = '';
+                document.getElementById('textModal').classList.add('show');
+                setTimeout(() => document.getElementById('modalInput').focus(), 100);
+            }
+            else if (type === 'signature') {
+                pendingType = 'signature';
+                document.getElementById('modalTitle').textContent = 'Enter Your Name';
+                document.getElementById('modalInput').placeholder = 'Your signature...';
+                document.getElementById('modalInput').value = '';
+                document.getElementById('textModal').classList.add('show');
+                setTimeout(() => document.getElementById('modalInput').focus(), 100);
+            }
+        }
+
+        function confirmText() {
+            const value = document.getElementById('modalInput').value.trim();
+            if (!value) return;
+
+            annotations.push({
+                type: pendingType,
+                x: clickX,
+                y: clickY,
+                value: value,
+                fontSize: 12 // Default font size for all annotations
+            });
+
+            closeModal();
+            renderAnnotations();
+            saveToLocalStorage();
+            showToast(pendingType === 'signature' ? '🖊️ Signature added' : '✏️ Text added');
+        }
+
+        function closeModal() {
+            document.getElementById('textModal').classList.remove('show');
+            pendingType = null;
+        }
+
+        function renderAnnotations() {
+            const layer = document.getElementById('annotationsLayer');
+            layer.innerHTML = '';
+
+            annotations.forEach((ann, index) => {
+                const el = document.createElement('div');
+                el.className = 'annotation ' + ann.type;
+                if (selectedAnnotationIndex === index) {
+                    el.classList.add('selected');
+                }
+                el.style.left = ann.x + '%';
+                el.style.top = ann.y + '%';
+                el.textContent = ann.value;
+
+                // Always apply fontSize, default to 12px if not set
+                el.style.fontSize = (ann.fontSize || 12) + 'px';
+
+                // Delete button
+                const delBtn = document.createElement('button');
+                delBtn.className = 'delete-btn';
+                delBtn.innerHTML = '×';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteAnnotation(index);
+                };
+                el.appendChild(delBtn);
+
+                // Add resize controls for all annotations
+                const resizeControls = document.createElement('div');
+                resizeControls.className = 'resize-controls';
+
+                const decreaseBtn = document.createElement('button');
+                decreaseBtn.className = 'resize-btn';
+                decreaseBtn.innerHTML = '−';
+                decreaseBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    changeTextSize(index, -2);
+                };
+
+                const increaseBtn = document.createElement('button');
+                increaseBtn.className = 'resize-btn';
+                increaseBtn.innerHTML = '+';
+                increaseBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    changeTextSize(index, 2);
+                };
+
+                resizeControls.appendChild(decreaseBtn);
+                resizeControls.appendChild(increaseBtn);
+                el.appendChild(resizeControls);
+
+                // Click to select annotation (but not when dragging)
+                el.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('delete-btn') ||
+                        e.target.classList.contains('resize-btn') ||
+                        e.target.closest('.resize-controls')) {
+                        return;
+                    }
+                    selectAnnotation(index);
+                });
+
+                // Make draggable
+                makeDraggable(el, index);
+
+                layer.appendChild(el);
+            });
+
+            updateCount();
+        }
+
+        function selectAnnotation(index) {
+            selectedAnnotationIndex = index;
+            renderAnnotations();
+        }
+
+        function changeTextSize(index, delta) {
+            if (!annotations[index].fontSize) {
+                annotations[index].fontSize = 12; // Default to 12px
+            }
+            annotations[index].fontSize = Math.max(12, Math.min(72, annotations[index].fontSize + delta));
+            renderAnnotations();
+            saveToLocalStorage();
+            showToast(`Text size: ${annotations[index].fontSize}px`);
+        }
+
+        function deleteAnnotation(index) {
+            annotations.splice(index, 1);
+            selectedAnnotationIndex = null;
+            renderAnnotations();
+            saveToLocalStorage();
+            showToast('Deleted');
+        }
+
+        function makeDraggable(el, index) {
+            let isDragging = false;
+            let startX, startY;
+
+            el.addEventListener('mousedown', startDrag);
+            el.addEventListener('touchstart', startDrag, { passive: false });
+
+            function startDrag(e) {
+                if (e.target.classList.contains('delete-btn')) return;
+
+                isDragging = true;
+                const touch = e.touches ? e.touches[0] : e;
+                startX = touch.clientX;
+                startY = touch.clientY;
+
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('touchmove', drag, { passive: false });
+                document.addEventListener('mouseup', stopDrag);
+                document.addEventListener('touchend', stopDrag);
+
+                e.preventDefault();
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+
+                const touch = e.touches ? e.touches[0] : e;
+                const container = document.getElementById('docContainer');
+                const rect = container.getBoundingClientRect();
+
+                const newX = ((touch.clientX - rect.left) / rect.width) * 100;
+                const newY = ((touch.clientY - rect.top) / rect.height) * 100;
+
+                // Update position
+                annotations[index].x = Math.max(0, Math.min(100, newX));
+                annotations[index].y = Math.max(0, Math.min(100, newY));
+
+                el.style.left = annotations[index].x + '%';
+                el.style.top = annotations[index].y + '%';
+
+                e.preventDefault();
+            }
+
+            function stopDrag() {
+                isDragging = false;
+                saveToLocalStorage();
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('touchmove', drag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.removeEventListener('touchend', stopDrag);
+            }
+        }
+
+        function undoLast() {
+            if (annotations.length > 0) {
+                annotations.pop();
+                renderAnnotations();
+                saveToLocalStorage();
+                showToast('↩ Undone');
+            }
+        }
+
+        function clearAll() {
+            if (annotations.length === 0) return;
+            if (confirm('Clear all items on this document?')) {
+                annotations = [];
+                renderAnnotations();
+                saveToLocalStorage();
+                showToast('Cleared');
+            }
+        }
+
+        function generateUserId() {
+            return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function updateCollabStatus(text, color) {
+            const statusEl = document.getElementById('collabStatus');
+            const statusText = document.getElementById('collabStatusText');
+            if (statusEl && statusText) {
+                statusEl.style.display = 'block';
+                statusText.textContent = text;
+                statusText.style.color = color;
+            }
+        }
+
+        async function saveDoc() {
+            if (!userName) {
+                document.getElementById('userNameModal').classList.add('show');
+                return;
+            }
+
+            if (!db) {
+                // Fallback to localStorage
+                saveToLocalStorage();
+                showToast('✓ Saved locally!');
+                return;
+            }
+
+            try {
+                // Create document ID if doesn't exist
+                if (!currentDocumentId) {
+                    currentDocumentId = generateDocumentId();
+                    // Update URL without reload
+                    const newUrl = window.location.pathname + '?doc=' + currentDocumentId;
+                    window.history.pushState({}, '', newUrl);
+                    document.getElementById('deleteBtn').style.display = 'block';
+                }
+
+                const docData = {
+                    annotations: annotations,
+                    rotation: rotation,
+                    zoomLevel: zoomLevel,
+                    fileName: document.getElementById('docName').textContent,
+                    fileData: uploadedFileData, // Base64 or URL
+                    lastModified: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastModifiedBy: userName,
+                    collaborators: firebase.firestore.FieldValue.arrayUnion({
+                        userId: userId,
+                        userName: userName,
+                        lastSeen: Date.now()
+                    })
+                };
+
+                await db.collection('documents').doc(currentDocumentId).set(docData, { merge: true });
+                saveToLocalStorage();
+                showToast('✓ Saved to cloud!');
+                updateCollabStatus('● Saved', '#2ec4b6');
+            } catch (error) {
+                console.error('Error saving:', error);
+                saveToLocalStorage();
+                showToast('⚠ Saved locally (offline)');
+            }
+        }
+
+        function createNewDoc() {
+            if (annotations.length > 0 && !confirm('Discard current document and start new?')) {
+                return;
+            }
+
+            // Reset state
+            annotations = [];
+            uploadedFileData = null;
+            currentDocumentId = null;
+            rotation = 0;
+            zoomLevel = 1;
+
+            // Reset UI
+            document.getElementById('docName').textContent = 'No document uploaded';
+            document.getElementById('docImage').src = '';
+            document.getElementById('docImage').style.display = 'block';
+            const pdfViewer = document.querySelector('.pdf-viewer');
+            if (pdfViewer) pdfViewer.remove();
+
+            // Hide delete button
+            document.getElementById('deleteBtn').style.display = 'none';
+
+            // Reset URL
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', cleanUrl);
+
+            // Stop sync listener
+            if (unsubscribeListener) {
+                unsubscribeListener();
+                unsubscribeListener = null;
+            }
+
+            applyTransform();
+            renderAnnotations();
+            updateCollabStatus('● Local Mode', '#8b8fa3');
+            showToast('➕ New document ready');
+        }
+
+        async function deleteDoc() {
+            if (!currentDocumentId) return;
+            if (!confirm('Permanently delete this document from the cloud? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                updateCollabStatus('● Deleting...', '#e63946');
+                await db.collection('documents').doc(currentDocumentId).delete();
+                showToast('🗑️ Document deleted');
+                createNewDoc(); // Reset to fresh state
+            } catch (error) {
+                console.error('Error deleting document:', error);
+                showToast('⚠ Delete failed');
+                updateCollabStatus('● Error deleting', '#e63946');
+            }
+        }
+
+        function saveToLocalStorage() {
+            const data = {
+                annotations: annotations,
+                rotation: rotation,
+                zoomLevel: zoomLevel,
+                fileName: document.getElementById('docName').textContent,
+                fileData: uploadedFileData
+            };
+            localStorage.setItem('roadtex_document', JSON.stringify(data));
+        }
+
+        async function loadDocumentFromFirebase(docId) {
+            if (!db) {
+                // Try loading from localStorage
+                loadFromLocalStorage();
+                return;
+            }
+
+            try {
+                updateCollabStatus('● Loading...', '#4895ef');
+
+                const docRef = db.collection('documents').doc(docId);
+                const doc = await docRef.get();
+
+                if (doc.exists()) {
+                    const data = doc.data();
+                    annotations = data.annotations || [];
+                    rotation = data.rotation || 0;
+                    zoomLevel = data.zoomLevel || 1;
+
+                    if (data.fileName) {
+                        document.getElementById('docName').textContent = data.fileName;
+                    }
+
+                    if (data.fileData) {
+                        uploadedFileData = data.fileData;
+                        // Restore file display
+                        restoreFileDisplay(data.fileData);
+                    }
+
+                    applyTransform();
+                    renderAnnotations();
+
+                    currentDocumentId = docId;
+                    document.getElementById('deleteBtn').style.display = 'block';
+                    updateCollabStatus('● Connected', '#2ec4b6');
+
+                    // Set up real-time listener
+                    setupRealtimeListener(docId);
+                } else {
+                    showToast('⚠ Document not found');
+                    updateCollabStatus('● Not found', '#e63946');
+                }
+            } catch (error) {
+                console.error('Error loading:', error);
+                loadFromLocalStorage();
+                updateCollabStatus('● Offline', '#8b8fa3');
+            }
+        }
+
+        function restoreFileDisplay(fileData) {
+            const docImage = document.getElementById('docImage');
+            const docContainer = document.getElementById('docContainer');
+
+            if (fileData.type === 'image') {
+                docImage.src = fileData.data;
+                docImage.style.display = 'block';
+                const pdfViewer = docContainer.querySelector('.pdf-viewer');
+                if (pdfViewer) pdfViewer.remove();
+            } else if (fileData.type === 'pdf') {
+                docImage.style.display = 'none';
+                const existingPdf = docContainer.querySelector('.pdf-viewer');
+                if (existingPdf) existingPdf.remove();
+
+                const pdfIframe = document.createElement('iframe');
+                pdfIframe.className = 'pdf-viewer';
+                pdfIframe.src = fileData.data;
+                pdfIframe.style.cssText = 'width: 100%; min-height: 800px; border: none; display: block;';
+                docContainer.appendChild(pdfIframe);
+            }
+        }
+
+        function setupRealtimeListener(docId) {
+            if (!db || !docId) return;
+
+            // Remove existing listener
+            if (unsubscribeListener) {
+                unsubscribeListener();
+            }
+
+            const docRef = db.collection('documents').doc(docId);
+
+            unsubscribeListener = docRef.onSnapshot((doc) => {
+                if (doc.exists() && !isSyncing) {
+                    const data = doc.data();
+
+                    // Only update if data is different (prevent loops)
+                    if (JSON.stringify(annotations) !== JSON.stringify(data.annotations || [])) {
+                        isSyncing = true;
+                        annotations = data.annotations || [];
+                        rotation = data.rotation || 0;
+                        zoomLevel = data.zoomLevel || 1;
+
+                        applyTransform();
+                        renderAnnotations();
+
+                        // Update collaborators list
+                        updateCollaboratorsList(data.collaborators || []);
+
+                        setTimeout(() => { isSyncing = false; }, 100);
+                    }
+                }
+            }, (error) => {
+                console.error('Listener error:', error);
+                updateCollabStatus('● Error', '#e63946');
+            });
+        }
+
+        function updateCollaboratorsList(collaborators) {
+            const container = document.getElementById('collaboratorsContainer');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            // Filter out old collaborators (last seen > 30 seconds ago)
+            const now = Date.now();
+            const active = collaborators.filter(collab => {
+                if (!collab.lastSeen) return true;
+                const lastSeen = collab.lastSeen?.toMillis ? collab.lastSeen.toMillis() : (collab.lastSeen || now);
+                return (now - lastSeen) < 30000; // 30 seconds
+            });
+
+            active.forEach(collab => {
+                if (collab.userId !== userId) {
+                    const badge = document.createElement('div');
+                    badge.style.cssText = 'background: var(--accent-blue); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;';
+                    badge.textContent = collab.userName || 'Anonymous';
+                    container.appendChild(badge);
+                }
+            });
+
+            if (active.length > 1) {
+                updateCollabStatus(`● ${active.length} collaborators`, '#2ec4b6');
+            }
+        }
+
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem('roadtex_document');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    annotations = data.annotations || [];
+                    rotation = data.rotation || 0;
+                    zoomLevel = data.zoomLevel || 1;
+
+                    if (data.fileName) {
+                        document.getElementById('docName').textContent = data.fileName;
+                    }
+
+                    if (data.fileData) {
+                        uploadedFileData = data.fileData;
+                        restoreFileDisplay(data.fileData);
+                    }
+
+                    applyTransform();
+                    renderAnnotations();
+                } catch (e) {
+                    console.error('Error loading from localStorage:', e);
+                }
+            }
+        }
+
+        function shareDocument() {
+            if (!currentDocumentId) {
+                // Create new document first
+                saveDoc();
+                setTimeout(() => {
+                    if (currentDocumentId) {
+                        showShareModal();
+                    } else {
+                        showToast('⚠ Please save document first');
+                    }
+                }, 500);
+            } else {
+                showShareModal();
+            }
+        }
+
+        function showShareModal() {
+            const shareLink = window.location.origin + window.location.pathname + '?doc=' + currentDocumentId;
+            document.getElementById('shareLinkInput').value = shareLink;
+            document.getElementById('shareModal').classList.add('show');
+
+            // Load collaborators
+            if (db && currentDocumentId) {
+                db.collection('documents').doc(currentDocumentId).get().then(doc => {
+                    if (doc.exists()) {
+                        updateCollaboratorsList(doc.data().collaborators || []);
+                    }
+                });
+            }
+        }
+
+        function closeShareModal() {
+            document.getElementById('shareModal').classList.remove('show');
+        }
+
+        function copyShareLink() {
+            const input = document.getElementById('shareLinkInput');
+            input.select();
+            document.execCommand('copy');
+            showToast('📋 Link copied!');
+        }
+
+        function saveUserName() {
+            const name = document.getElementById('userNameInput').value.trim();
+            if (name) {
+                userName = name;
+                localStorage.setItem('roadtex_userName', userName);
+                closeUserNameModal();
+
+                // If we have a document ID, join it
+                if (currentDocumentId) {
+                    loadDocumentFromFirebase(currentDocumentId);
+                }
+            }
+        }
+
+        function closeUserNameModal() {
+            document.getElementById('userNameModal').classList.remove('show');
+        }
+
+        // Auto-save every 30 seconds
+        setInterval(() => {
+            if (currentDocumentId && annotations.length > 0 && !isSyncing) {
+                saveDoc();
+            }
+            // Always update local backup if we have content
+            if (annotations.length > 0 || uploadedFileData) {
+                saveToLocalStorage();
+            }
+        }, 30000);
+
+        function updateCount() {
+            const total = annotations.length;
+            document.getElementById('annotationCount').textContent = total;
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const fileName = file.name;
+            const fileType = file.type;
+            const docImage = document.getElementById('docImage');
+            const docContainer = document.getElementById('docContainer');
+
+            // Reset state for new document
+            annotations = [];
+            currentDocumentId = null;
+            rotation = 0;
+            zoomLevel = 1;
+
+            // Reset UI for new document
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', cleanUrl);
+            document.getElementById('deleteBtn').style.display = 'none';
+            document.getElementById('docName').textContent = fileName;
+
+            applyTransform();
+            renderAnnotations();
+            updateCollabStatus('● Local Mode (New Upload)', '#8b8fa3');
+            saveToLocalStorage();
+
+            // Check if it's a PDF
+            if (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+                // Convert PDF to base64 for storage
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const fileURL = e.target.result; // Data URL
+
+                    // Save file data for collaboration
+                    uploadedFileData = {
+                        type: 'pdf',
+                        data: fileURL,
+                        fileName: fileName
+                    };
+
+                    // Hide image, show PDF in iframe
+                    docImage.style.display = 'none';
+
+                    // Remove existing PDF iframe if any
+                    const existingPdf = docContainer.querySelector('.pdf-viewer');
+                    if (existingPdf) {
+                        existingPdf.remove();
+                    }
+
+                    // Create iframe for PDF
+                    const pdfIframe = document.createElement('iframe');
+                    pdfIframe.className = 'pdf-viewer';
+                    pdfIframe.src = fileURL;
+                    pdfIframe.style.cssText = 'width: 100%; min-height: 800px; border: none; display: block;';
+                    docContainer.appendChild(pdfIframe);
+
+                    saveToLocalStorage();
+                    showToast('✓ PDF uploaded');
+
+                    // Auto-save if document exists
+                    if (currentDocumentId) {
+                        saveDoc();
+                    }
+                };
+                reader.readAsDataURL(file);
+            } else if (fileType.startsWith('image/')) {
+                // Handle images
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const imageData = e.target.result; // Base64 data URL
+
+                    // Save file data for collaboration
+                    uploadedFileData = {
+                        type: 'image',
+                        data: imageData,
+                        fileName: fileName
+                    };
+
+                    docImage.src = imageData;
+                    docImage.style.display = 'block';
+
+                    // Remove PDF iframe if any
+                    const existingPdf = docContainer.querySelector('.pdf-viewer');
+                    if (existingPdf) {
+                        existingPdf.remove();
+                    }
+                    saveToLocalStorage();
+
+                    showToast('✓ Image uploaded');
+
+                    // Auto-save if document exists
+                    if (currentDocumentId) {
+                        saveDoc();
+                    }
+                };
+                reader.readAsDataURL(file);
+            } else {
+                showToast('⚠ Unsupported file type');
+            }
+
+            // Reset file input
+            event.target.value = '';
+        }
+
+        function rotateDocument() {
+            rotation = (rotation + 90) % 360;
+            applyTransform();
+            showToast(`🔄 Rotated ${rotation}°`);
+        }
+
+        function addDate(option) {
+            hideMenu();
+            selectedAnnotationIndex = null;
+
+            if (option === 'today') {
+                const today = new Date().toLocaleDateString();
+                annotations.push({
+                    type: 'date',
+                    x: clickX,
+                    y: clickY,
+                    value: today,
+                    fontSize: 12
+                });
+                renderAnnotations();
+                saveToLocalStorage();
+                showToast('📅 Date added');
+            } else if (option === 'select') {
+                // Show date picker modal
+                const dateInput = document.getElementById('dateInput');
+                dateInput.value = new Date().toISOString().split('T')[0]; // Set to today
+                document.getElementById('dateModal').classList.add('show');
+            }
+        }
+
+        function confirmDate() {
+            const dateInput = document.getElementById('dateInput');
+            const selectedDate = new Date(dateInput.value);
+            const formattedDate = selectedDate.toLocaleDateString();
+
+            annotations.push({
+                type: 'date',
+                x: clickX,
+                y: clickY,
+                value: formattedDate,
+                fontSize: 12
+            });
+
+            closeDateModal();
+            renderAnnotations();
+            saveToLocalStorage();
+            showToast('📅 Date added');
+        }
+
+        function closeDateModal() {
+            document.getElementById('dateModal').classList.remove('show');
+        }
+
+        function addTime(option) {
+            hideMenu();
+            selectedAnnotationIndex = null;
+
+            if (option === 'now') {
+                const now = new Date();
+                const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                annotations.push({
+                    type: 'time',
+                    x: clickX,
+                    y: clickY,
+                    value: timeString,
+                    fontSize: 12
+                });
+                renderAnnotations();
+                saveToLocalStorage();
+                showToast('🕐 Time added');
+            } else if (option === 'manual') {
+                // Show time input modal
+                const timeInput = document.getElementById('timeInput');
+                const now = new Date();
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                timeInput.value = `${hours}:${minutes}`;
+                document.getElementById('timeModal').classList.add('show');
+            }
+        }
+
+        function confirmTime() {
+            const timeInput = document.getElementById('timeInput');
+            const timeValue = timeInput.value;
+
+            if (!timeValue) return;
+
+            // Convert HH:MM format to readable time
+            const [hours, minutes] = timeValue.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes));
+            const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            annotations.push({
+                type: 'time',
+                x: clickX,
+                y: clickY,
+                value: timeString,
+                fontSize: 12
+            });
+
+            closeTimeModal();
+            renderAnnotations();
+            saveToLocalStorage();
+            showToast('🕐 Time added');
+        }
+
+        function closeTimeModal() {
+            document.getElementById('timeModal').classList.remove('show');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+    </script>
+</body>
+
+</html>
