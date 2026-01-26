@@ -1284,7 +1284,13 @@
             } catch (error) {
                 console.error('Error saving:', error);
                 saveToLocalStorage();
-                showToast('⚠ Saved locally (offline)');
+                if (error.code === 'permission-denied') {
+                    showToast('⚠ Permission denied');
+                } else if (error.message && error.message.includes('too large')) {
+                    showToast('⚠ File too large for cloud (>1MB)');
+                } else {
+                    showToast('⚠ Save failed - stored locally');
+                }
             }
         }
 
@@ -1370,7 +1376,7 @@
                 const docRef = db.collection('documents').doc(docId);
                 const doc = await docRef.get();
 
-                if (doc.exists()) {
+                if (doc.exists) {
                     const data = doc.data();
                     annotations = data.annotations || [];
                     rotation = data.rotation || 0;
@@ -1383,7 +1389,7 @@
                     if (data.fileData) {
                         uploadedFileData = data.fileData;
                         // Restore file display
-                        restoreFileDisplay(data.fileData);
+                        await renderFileToCanvas(data.fileData);
                     }
 
                     applyTransform();
@@ -1396,13 +1402,14 @@
                     // Set up real-time listener
                     setupRealtimeListener(docId);
                 } else {
-                    showToast('⚠ Document not found');
-                    updateCollabStatus('● Not found', '#e63946');
+                    showToast('⚠ Document not found - loading local draft');
+                    updateCollabStatus('● Not found (Fallback)', '#8b8fa3');
+                    loadFromLocalStorage();
                 }
             } catch (error) {
                 console.error('Error loading:', error);
                 loadFromLocalStorage();
-                updateCollabStatus('● Offline', '#8b8fa3');
+                updateCollabStatus('● Connection Error', '#8b8fa3');
             }
         }
 
@@ -1487,15 +1494,28 @@
             const docRef = db.collection('documents').doc(docId);
 
             unsubscribeListener = docRef.onSnapshot((doc) => {
-                if (doc.exists() && !isSyncing) {
+                if (doc.exists && !isSyncing) {
                     const data = doc.data();
 
-                    // Only update if data is different (prevent loops)
-                    if (JSON.stringify(annotations) !== JSON.stringify(data.annotations || [])) {
+                    // Check if file data changed (e.g. someone uploaded a different file)
+                    if (data.fileData && (!uploadedFileData || JSON.stringify(data.fileData) !== JSON.stringify(uploadedFileData))) {
+                        isSyncing = true;
+                        uploadedFileData = data.fileData;
+                        document.getElementById('docName').textContent = data.fileName || 'Document';
+                        renderFileToCanvas(data.fileData).then(() => {
+                            isSyncing = false;
+                        });
+                    }
+
+                    // Only update if someone else modified it
+                    const dataJson = JSON.stringify(data.annotations || []);
+                    const currentJson = JSON.stringify(annotations);
+
+                    if (dataJson !== currentJson || data.rotation !== rotation) {
                         isSyncing = true;
                         annotations = data.annotations || [];
                         rotation = data.rotation || 0;
-                        zoomLevel = data.zoomLevel || 1;
+                        zoomLevel = 1;
 
                         applyTransform();
                         renderAnnotations();
