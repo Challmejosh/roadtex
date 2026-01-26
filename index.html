@@ -465,18 +465,75 @@
             opacity: 1;
         }
 
-        /* Mobile friendly */
-        @media (max-width: 600px) {
-            .doc-viewer {
-                padding: 10px;
+        /* Responsive Design Strategy */
+
+        /* Tablet & Large Mobile (<= 1024px) */
+        @media (max-width: 1024px) {
+            .btn-text {
+                display: none;
             }
 
             .header {
-                padding: 10px 15px;
+                padding: 8px 15px;
             }
 
-            .doc-tabs {
-                padding: 8px 15px;
+            .header-actions {
+                gap: 6px;
+            }
+        }
+
+        /* Mobile (<= 768px) */
+        @media (max-width: 768px) {
+            .logo {
+                font-size: 16px;
+            }
+
+            .doc-name {
+                display: none;
+            }
+
+            .header-actions {
+                gap: 4px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 2px;
+                scrollbar-width: none;
+                /* Hide scrollbar for clean look */
+            }
+
+            .header-actions::-webkit-scrollbar {
+                display: none;
+            }
+
+            .btn {
+                padding: 6px 10px;
+                flex-shrink: 0;
+            }
+
+            .doc-viewer {
+                top: 48px;
+                bottom: 100px;
+                padding: 10px;
+            }
+
+            .bottom-bar {
+                flex-direction: column;
+                gap: 10px;
+                padding: 12px;
+                text-align: center;
+            }
+        }
+
+        /* Extra Small Screens */
+        @media (max-width: 480px) {
+            .logo {
+                display: none;
+            }
+
+            .btn[onclick="clearAll()"],
+            .btn[onclick="createNewDoc()"],
+            .btn[onclick="undoLast()"] {
+                display: none;
             }
         }
     </style>
@@ -490,23 +547,39 @@
             <div class="doc-name" id="docName">No document uploaded</div>
         </div>
         <div class="header-actions">
-            <button class="btn btn-secondary" onclick="createNewDoc()">➕ New</button>
-            <button class="btn btn-secondary" onclick="deleteDoc()" id="deleteBtn" style="display: none;">🗑️
-                Delete</button>
-            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">📤 Upload</button>
+            <button class="btn btn-secondary" onclick="createNewDoc()" title="New Document">
+                <span class="btn-icon">➕</span> <span class="btn-text">New</span>
+            </button>
+            <button class="btn btn-secondary" onclick="deleteDoc()" id="deleteBtn" style="display: none;"
+                title="Delete Document">
+                <span class="btn-icon">🗑️</span> <span class="btn-text">Delete</span>
+            </button>
+            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()" title="Upload">
+                <span class="btn-icon">📤</span> <span class="btn-text">Upload</span>
+            </button>
             <div class="zoom-controls">
-                <button class="btn btn-secondary" onclick="zoomOut()">➖</button>
+                <button class="btn btn-secondary" onclick="zoomOut()" title="Zoom Out">➖</button>
                 <span id="zoomPercent"
                     style="min-width: 45px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-secondary);">100%</span>
-                <button class="btn btn-secondary" onclick="zoomIn()">➕</button>
+                <button class="btn btn-secondary" onclick="zoomIn()" title="Zoom In">➕</button>
             </div>
             <button class="btn btn-secondary" onclick="fitWidth()" title="Fit Width">↔️</button>
             <button class="btn btn-secondary" onclick="resetZoom()" title="Reset Zoom">🔄</button>
-            <button class="btn btn-secondary" onclick="rotateDocument()">🔄 Rotate</button>
-            <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
-            <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
-            <button class="btn btn-secondary" onclick="shareDocument()">🔗 Share</button>
-            <button class="btn btn-primary" onclick="saveDoc()">💾 Save</button>
+            <button class="btn btn-secondary" onclick="rotateDocument()" title="Rotate">
+                <span class="btn-icon">🔄</span> <span class="btn-text">Rotate</span>
+            </button>
+            <button class="btn btn-secondary" onclick="undoLast()" title="Undo">
+                <span class="btn-icon">↩</span> <span class="btn-text">Undo</span>
+            </button>
+            <button class="btn btn-secondary" onclick="clearAll()" title="Clear">
+                <span class="btn-icon">🧹</span> <span class="btn-text">Clear</span>
+            </button>
+            <button class="btn btn-secondary" onclick="shareDocument()" title="Share">
+                <span class="btn-icon">🔗</span> <span class="btn-text">Share</span>
+            </button>
+            <button class="btn btn-primary" onclick="saveDoc()" title="Save">
+                <span class="btn-icon">💾</span> <span class="btn-text">Save</span>
+            </button>
         </div>
         <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp" style="display: none;"
             onchange="handleFileUpload(event)">
@@ -654,7 +727,7 @@
         let pendingType = null;
         let rotation = 0; // Rotation in degrees (0, 90, 180, 270)
         let selectedAnnotationIndex = null; // Currently selected annotation
-        let zoomLevel = 1; // Zoom level (1 = 100%, 1.5 = 150%, etc.)
+        let zoomLevel = 1; // Default zoom at 100%
 
         // Collaboration variables
         let currentDocumentId = null;
@@ -1301,7 +1374,7 @@
                     const data = doc.data();
                     annotations = data.annotations || [];
                     rotation = data.rotation || 0;
-                    zoomLevel = data.zoomLevel || 1;
+                    zoomLevel = 1;
 
                     if (data.fileName) {
                         document.getElementById('docName').textContent = data.fileName;
@@ -1474,7 +1547,7 @@
                     const data = JSON.parse(saved);
                     annotations = data.annotations || [];
                     rotation = data.rotation || 0;
-                    zoomLevel = data.zoomLevel || 1;
+                    zoomLevel = 1;
 
                     if (data.fileName) {
                         document.getElementById('docName').textContent = data.fileName;
