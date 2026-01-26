@@ -9,6 +9,12 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@500;600;700&display=swap');
 
@@ -123,46 +129,54 @@
             color: white;
         }
 
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            background: var(--border-color);
+            border-radius: 6px;
+            padding: 0 4px;
+        }
+
+        .zoom-controls .btn {
+            background: transparent;
+        }
+
         /* Document Viewer */
         .doc-viewer {
             position: fixed;
             top: 53px;
-            /* Adjusted since tabs are hidden */
             left: 0;
             right: 0;
             bottom: 60px;
             overflow: auto;
-            background: #2a2a2a;
+            background: radial-gradient(circle at center, #232733, #0f1117);
             display: flex;
             justify-content: center;
             align-items: flex-start;
-            padding: 20px;
+            padding: 40px 20px;
+            scroll-behavior: smooth;
         }
 
         .doc-container {
             position: relative;
             background: white;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+            box-shadow:
+                0 0 1px rgba(0, 0, 0, 0.1),
+                0 4px 12px rgba(0, 0, 0, 0.1),
+                0 18px 38px rgba(0, 0, 0, 0.25);
             cursor: crosshair;
-            transition: transform 0.3s ease;
-            transform-origin: top center;
+            transition: transform 0.2s cubic-bezier(0.1, 0.7, 0.1, 1);
+            transform-origin: 50% 0;
             margin: 0 auto;
+            border-radius: 2px;
         }
 
-        .doc-image {
+        .doc-canvas {
             display: block;
-            max-width: 100%;
-            height: auto;
-            pointer-events: none;
-            transition: transform 0.3s ease;
-        }
-
-        .pdf-viewer {
             width: 100%;
-            min-height: 800px;
-            border: none;
-            background: white;
-            transition: transform 0.3s ease;
+            height: auto;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
         }
 
         /* Annotations Layer */
@@ -480,9 +494,14 @@
             <button class="btn btn-secondary" onclick="deleteDoc()" id="deleteBtn" style="display: none;">🗑️
                 Delete</button>
             <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">📤 Upload</button>
-            <button class="btn btn-secondary" onclick="zoomOut()">🔍− Zoom Out</button>
-            <button class="btn btn-secondary" onclick="resetZoom()">🔍 Reset</button>
-            <button class="btn btn-secondary" onclick="zoomIn()">🔍+ Zoom In</button>
+            <div class="zoom-controls">
+                <button class="btn btn-secondary" onclick="zoomOut()">➖</button>
+                <span id="zoomPercent"
+                    style="min-width: 45px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-secondary);">100%</span>
+                <button class="btn btn-secondary" onclick="zoomIn()">➕</button>
+            </div>
+            <button class="btn btn-secondary" onclick="fitWidth()" title="Fit Width">↔️</button>
+            <button class="btn btn-secondary" onclick="resetZoom()" title="Reset Zoom">🔄</button>
             <button class="btn btn-secondary" onclick="rotateDocument()">🔄 Rotate</button>
             <button class="btn btn-secondary" onclick="undoLast()">↩ Undo</button>
             <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
@@ -496,9 +515,9 @@
     <!-- Document Tabs - Removed for single document upload -->
 
     <!-- Document Viewer -->
-    <div class="doc-viewer">
+    <div class="doc-viewer" id="docViewer">
         <div class="doc-container" id="docContainer">
-            <img src="" alt="Document" class="doc-image" id="docImage">
+            <canvas id="docCanvas" class="doc-canvas" style="display: none;"></canvas>
             <div class="annotations-layer" id="annotationsLayer"></div>
         </div>
     </div>
@@ -716,13 +735,32 @@
             document.getElementById('docContainer').addEventListener('click', handleDocClick);
 
             // Mouse wheel zoom (with Ctrl/Cmd key)
-            document.getElementById('docContainer').addEventListener('wheel', (e) => {
+            document.getElementById('docViewer').addEventListener('wheel', (e) => {
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
-                    if (e.deltaY < 0) {
-                        zoomIn();
-                    } else {
-                        zoomOut();
+
+                    const viewer = e.currentTarget;
+                    const container = document.getElementById('docContainer');
+                    const rect = container.getBoundingClientRect();
+
+                    // Calculate mouse position relative to container
+                    const mouseX = (e.clientX - rect.left) / zoomLevel;
+                    const mouseY = (e.clientY - rect.top) / zoomLevel;
+
+                    const oldZoom = zoomLevel;
+                    const delta = e.deltaY < 0 ? 0.1 : -0.1;
+                    zoomLevel = Math.max(0.2, Math.min(5, zoomLevel + delta));
+
+                    if (oldZoom !== zoomLevel) {
+                        applyTransform();
+
+                        // Adjust scroll to keep mouse point fixed
+                        const newRect = container.getBoundingClientRect();
+                        const scrollX = (mouseX * zoomLevel + newRect.left) - e.clientX;
+                        const scrollY = (mouseY * zoomLevel + newRect.top) - e.clientY;
+
+                        viewer.scrollLeft += scrollX;
+                        viewer.scrollTop += scrollY;
                     }
                 }
             }, { passive: false });
@@ -754,52 +792,47 @@
 
         function applyTransform() {
             const docContainer = document.getElementById('docContainer');
-            const docViewer = docContainer.closest('.doc-viewer');
             const transform = `scale(${zoomLevel}) rotate(${rotation}deg)`;
             docContainer.style.transform = transform;
 
-            // When zoomed in, ensure we can scroll to see all content
-            // Add padding to the container to account for zoom scale
-            if (zoomLevel > 1) {
-                // Calculate how much extra space we need
-                const scale = zoomLevel;
-                const containerRect = docContainer.getBoundingClientRect();
-                // The visual size is scale * actual size, but layout size stays the same
-                // We need to ensure the viewer can scroll to accommodate the visual size
-                // This is handled by the transform-origin: top center, which keeps content anchored at top
+            // Update zoom percentage indicator
+            const zoomPercent = document.getElementById('zoomPercent');
+            if (zoomPercent) {
+                zoomPercent.textContent = `${Math.round(zoomLevel * 100)}%`;
             }
         }
 
         function zoomIn() {
-            zoomLevel = Math.min(3, zoomLevel + 0.25); // Max 300%
+            zoomLevel = Math.min(5, zoomLevel + 0.1); // Max 500%, smaller steps
             applyTransform();
-            // Ensure we can scroll to top after zooming
-            const docViewer = document.getElementById('docContainer').closest('.doc-viewer');
-            if (docViewer) {
-                setTimeout(() => {
-                    docViewer.scrollTop = 0;
-                }, 50);
-            }
-            showToast(`🔍 Zoom: ${Math.round(zoomLevel * 100)}%`);
         }
 
         function zoomOut() {
-            zoomLevel = Math.max(0.5, zoomLevel - 0.25); // Min 50%
+            zoomLevel = Math.max(0.2, zoomLevel - 0.1); // Min 20%, smaller steps
             applyTransform();
-            showToast(`🔍 Zoom: ${Math.round(zoomLevel * 100)}%`);
         }
 
         function resetZoom() {
             zoomLevel = 1;
             applyTransform();
-            // Scroll to top when resetting
             const docViewer = document.getElementById('docContainer').closest('.doc-viewer');
             if (docViewer) {
-                setTimeout(() => {
-                    docViewer.scrollTop = 0;
-                }, 50);
+                docViewer.scrollTop = 0;
             }
-            showToast('🔍 Zoom reset');
+        }
+
+        function fitWidth() {
+            const docContainer = document.getElementById('docContainer');
+            const docViewer = docContainer.closest('.doc-viewer');
+            if (!docContainer || !docViewer) return;
+
+            // Get actual dimensions (ignoring scale)
+            const naturalWidth = docContainer.offsetWidth;
+            const availableWidth = docViewer.clientWidth - 80; // Padding
+
+            zoomLevel = availableWidth / naturalWidth;
+            applyTransform();
+            showToast('↔️ Fit to width');
         }
 
         function resetRotation() {
@@ -1196,10 +1229,12 @@
 
             // Reset UI
             document.getElementById('docName').textContent = 'No document uploaded';
-            document.getElementById('docImage').src = '';
-            document.getElementById('docImage').style.display = 'block';
-            const pdfViewer = document.querySelector('.pdf-viewer');
-            if (pdfViewer) pdfViewer.remove();
+            const canvas = document.getElementById('docCanvas');
+            if (canvas) {
+                canvas.style.display = 'none';
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
 
             // Hide delete button
             document.getElementById('deleteBtn').style.display = 'none';
@@ -1298,26 +1333,74 @@
             }
         }
 
-        function restoreFileDisplay(fileData) {
-            const docImage = document.getElementById('docImage');
-            const docContainer = document.getElementById('docContainer');
+        const HIGH_RES_WIDTH = 2000;
 
-            if (fileData.type === 'image') {
-                docImage.src = fileData.data;
-                docImage.style.display = 'block';
-                const pdfViewer = docContainer.querySelector('.pdf-viewer');
-                if (pdfViewer) pdfViewer.remove();
-            } else if (fileData.type === 'pdf') {
-                docImage.style.display = 'none';
-                const existingPdf = docContainer.querySelector('.pdf-viewer');
-                if (existingPdf) existingPdf.remove();
+        async function renderFileToCanvas(fileData) {
+            if (!fileData || !fileData.data) return;
 
-                const pdfIframe = document.createElement('iframe');
-                pdfIframe.className = 'pdf-viewer';
-                pdfIframe.src = fileData.data;
-                pdfIframe.style.cssText = 'width: 100%; min-height: 800px; border: none; display: block;';
-                docContainer.appendChild(pdfIframe);
+            const canvas = document.getElementById('docCanvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('docContainer');
+
+            updateCollabStatus('● Rendering...', '#4895ef');
+
+            try {
+                if (fileData.type === 'pdf') {
+                    let pdfSource = fileData.data;
+
+                    // Convert base64 to Uint8Array for pdf.js
+                    if (typeof pdfSource === 'string' && pdfSource.startsWith('data:application/pdf;base64,')) {
+                        const base64Content = pdfSource.split(',')[1];
+                        const binaryString = window.atob(base64Content);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        pdfSource = { data: bytes };
+                    } else {
+                        pdfSource = { url: pdfSource };
+                    }
+
+                    const loadingTask = pdfjsLib.getDocument(pdfSource);
+                    const pdf = await loadingTask.promise;
+                    const page = await pdf.getPage(1);
+
+                    const viewport = page.getViewport({ scale: 1 });
+                    const scale = HIGH_RES_WIDTH / viewport.width;
+                    const highResViewport = page.getViewport({ scale: scale });
+
+                    canvas.width = highResViewport.width;
+                    canvas.height = highResViewport.height;
+
+                    // Maintain standard base width for annotations
+                    container.style.width = '800px';
+
+                    await page.render({ canvasContext: ctx, viewport: highResViewport }).promise;
+                    canvas.style.display = 'block';
+                } else if (fileData.type === 'image') {
+                    const img = new Image();
+                    img.onload = () => {
+                        const scale = HIGH_RES_WIDTH / img.width;
+                        canvas.width = HIGH_RES_WIDTH;
+                        canvas.height = img.height * scale;
+
+                        container.style.width = '800px';
+
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        canvas.style.display = 'block';
+                    };
+                    img.src = fileData.data;
+                }
+                updateCollabStatus('● Connected', '#2ec4b6');
+            } catch (error) {
+                console.error('Render error:', error);
+                showToast('⚠ Rendering failed');
+                updateCollabStatus('● Render Error', '#e63946');
             }
+        }
+
+        function restoreFileDisplay(fileData) {
+            renderFileToCanvas(fileData);
         }
 
         function setupRealtimeListener(docId) {
@@ -1492,7 +1575,6 @@
 
             const fileName = file.name;
             const fileType = file.type;
-            const docImage = document.getElementById('docImage');
             const docContainer = document.getElementById('docContainer');
 
             // Reset state for new document
@@ -1507,84 +1589,38 @@
             document.getElementById('deleteBtn').style.display = 'none';
             document.getElementById('docName').textContent = fileName;
 
+            // Clear Canvas
+            const canvas = document.getElementById('docCanvas');
+            if (canvas) {
+                canvas.style.display = 'none';
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
             applyTransform();
             renderAnnotations();
             updateCollabStatus('● Local Mode (New Upload)', '#8b8fa3');
             saveToLocalStorage();
 
-            // Check if it's a PDF
-            if (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
-                // Convert PDF to base64 for storage
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    const fileURL = e.target.result; // Data URL
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const fileURL = e.target.result;
 
-                    // Save file data for collaboration
-                    uploadedFileData = {
-                        type: 'pdf',
-                        data: fileURL,
-                        fileName: fileName
-                    };
-
-                    // Hide image, show PDF in iframe
-                    docImage.style.display = 'none';
-
-                    // Remove existing PDF iframe if any
-                    const existingPdf = docContainer.querySelector('.pdf-viewer');
-                    if (existingPdf) {
-                        existingPdf.remove();
-                    }
-
-                    // Create iframe for PDF
-                    const pdfIframe = document.createElement('iframe');
-                    pdfIframe.className = 'pdf-viewer';
-                    pdfIframe.src = fileURL;
-                    pdfIframe.style.cssText = 'width: 100%; min-height: 800px; border: none; display: block;';
-                    docContainer.appendChild(pdfIframe);
-
-                    saveToLocalStorage();
-                    showToast('✓ PDF uploaded');
-
-                    // Auto-save if document exists
-                    if (currentDocumentId) {
-                        saveDoc();
-                    }
+                uploadedFileData = {
+                    type: (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) ? 'pdf' : 'image',
+                    data: fileURL,
+                    fileName: fileName
                 };
-                reader.readAsDataURL(file);
-            } else if (fileType.startsWith('image/')) {
-                // Handle images
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    const imageData = e.target.result; // Base64 data URL
 
-                    // Save file data for collaboration
-                    uploadedFileData = {
-                        type: 'image',
-                        data: imageData,
-                        fileName: fileName
-                    };
+                renderFileToCanvas(uploadedFileData);
+                saveToLocalStorage();
+                showToast(`✓ ${uploadedFileData.type.toUpperCase()} uploaded`);
 
-                    docImage.src = imageData;
-                    docImage.style.display = 'block';
-
-                    // Remove PDF iframe if any
-                    const existingPdf = docContainer.querySelector('.pdf-viewer');
-                    if (existingPdf) {
-                        existingPdf.remove();
-                    }
-                    saveToLocalStorage();
-
-                    showToast('✓ Image uploaded');
-
-                    // Auto-save if document exists
-                    if (currentDocumentId) {
-                        saveDoc();
-                    }
-                };
-                reader.readAsDataURL(file);
-            } else {
-                showToast('⚠ Unsupported file type');
-            }
+                if (currentDocumentId) {
+                    saveDoc();
+                }
+            };
+            reader.readAsDataURL(file);
 
             // Reset file input
             event.target.value = '';
