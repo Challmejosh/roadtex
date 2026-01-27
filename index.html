@@ -1581,19 +1581,37 @@
 
                     const loadingTask = pdfjsLib.getDocument(pdfSource);
                     const pdf = await loadingTask.promise;
-                    const page = await pdf.getPage(1);
 
-                    const viewport = page.getViewport({ scale: 1 });
-                    const scale = HIGH_RES_WIDTH / viewport.width;
-                    const highResViewport = page.getViewport({ scale: scale });
+                    // Render all pages into one tall canvas
+                    const pageViewports = [];
+                    let totalHeight = 0;
 
-                    canvas.width = highResViewport.width;
-                    canvas.height = highResViewport.height;
+                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                        const page = await pdf.getPage(pageNum);
+                        const viewport = page.getViewport({ scale: 1 });
+                        const scale = HIGH_RES_WIDTH / viewport.width;
+                        const highResViewport = page.getViewport({ scale });
+
+                        pageViewports.push({ page, viewport: highResViewport });
+                        totalHeight += highResViewport.height;
+                    }
+
+                    canvas.width = HIGH_RES_WIDTH;
+                    canvas.height = totalHeight;
 
                     // Maintain standard base width for annotations
                     container.style.width = '800px';
 
-                    await page.render({ canvasContext: ctx, viewport: highResViewport }).promise;
+                    let currentYOffset = 0;
+                    for (const { page, viewport } of pageViewports) {
+                        await page.render({
+                            canvasContext: ctx,
+                            viewport,
+                            transform: [1, 0, 0, 1, 0, currentYOffset]
+                        }).promise;
+                        currentYOffset += viewport.height;
+                    }
+
                     canvas.style.display = 'block';
                 } else if (fileData.type === 'image') {
                     const img = new Image();
