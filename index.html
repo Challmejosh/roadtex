@@ -100,6 +100,26 @@
             color: white;
         }
 
+        .btn-loading {
+            opacity: 0.7;
+            pointer-events: none;
+            position: relative;
+        }
+
+        .btn-loading .btn-text {
+            visibility: hidden;
+        }
+
+        .btn-loading::after {
+            content: "Saving...";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
         .btn:hover {
             opacity: 0.9;
             transform: scale(1.02);
@@ -614,7 +634,7 @@
             <button class="btn btn-secondary" onclick="shareDocument()" title="Share">
                 <span class="btn-icon">🔗</span> <span class="btn-text">Share</span>
             </button>
-            <button class="btn btn-primary" onclick="saveDoc()" title="Save">
+            <button class="btn btn-primary" onclick="saveDoc()" title="Save" id="saveBtn">
                 <span class="btn-icon">💾</span> <span class="btn-text">Save</span>
             </button>
         </div>
@@ -839,15 +859,8 @@
                 currentDocumentId = urlDocId;
                 loadDocumentFromFirebase(urlDocId);
             } else {
-                // Fallback to last local session
-                loadFromLocalStorage();
-                updateCollabStatus('● Local Mode (Restored)', '#8b8fa3');
-
-                // Check for user name, prompt if not set
-                if (!userName) {
-                    document.getElementById('userNameModal').classList.add('show');
-                    document.getElementById('userNameInput').focus();
-                }
+                // Landing without ?doc should be a new document
+                createNewDoc(true);
             }
 
             // Start with empty document
@@ -1382,14 +1395,21 @@
                 return;
             }
 
-            if (!db) {
-                // Fallback to localStorage
-                saveToLocalStorage();
-                showToast('✓ Saved locally!');
-                return;
-            }
+            const saveBtn = document.getElementById('saveBtn');
+            const originalText = saveBtn.innerHTML;
+
+            // Set loading state
+            saveBtn.classList.add('btn-loading');
+            saveBtn.disabled = true;
 
             try {
+                if (!db) {
+                    // Fallback to localStorage
+                    saveToLocalStorage();
+                    showToast('✓ Saved locally!');
+                    return;
+                }
+
                 // Ensure document exists in Firestore
                 if (!currentDocumentId) {
                     currentDocumentId = generateDocumentId();
@@ -1398,9 +1418,26 @@
                     document.getElementById('deleteBtn').style.display = 'block';
                 }
 
+                // Sanitize file data to ensure it's a plain object and has no undefined values
+                let sanitizedFileData = null;
+                if (uploadedFileData) {
+                    // Quick way to ensure a plain object with no complex types/undefined
+                    sanitizedFileData = JSON.parse(JSON.stringify(uploadedFileData));
+
+                    // Check for Firestore document size limit (roughly 1MB for the whole doc)
+                    // fileData is the main contributor
+                    const stringified = JSON.stringify(sanitizedFileData);
+                    if (stringified.length > 1000000) {
+                        showToast('⚠ File too large for cloud (>1MB). Saving locally instead.');
+                        saveToLocalStorage();
+                        updateCollabStatus('● Local Only (Size)', '#ffd43b');
+                        return; // Exit cloud save
+                    }
+                }
+
                 const docData = {
                     fileName: document.getElementById('docName').textContent,
-                    fileData: uploadedFileData, // Base64 or URL
+                    fileData: sanitizedFileData, // Use sanitized version
                     lastModified: firebase.firestore.FieldValue.serverTimestamp(),
                     lastModifiedBy: userName,
                     collaborators: firebase.firestore.FieldValue.arrayUnion({
@@ -1417,18 +1454,23 @@
             } catch (error) {
                 console.error('Error saving:', error);
                 saveToLocalStorage();
+
                 if (error.code === 'permission-denied') {
                     showToast('⚠ Permission denied');
-                } else if (error.message && error.message.includes('too large')) {
-                    showToast('⚠ File too large for cloud (>1MB)');
+                } else if (error.message && (error.message.includes('too large') || error.message.includes('nested entity'))) {
+                    showToast('⚠ Error: File incompatible or too large for cloud');
                 } else {
                     showToast('⚠ Save failed - stored locally');
                 }
+            } finally {
+                // Restore original state
+                saveBtn.classList.remove('btn-loading');
+                saveBtn.disabled = false;
             }
         }
 
-        function createNewDoc() {
-            if (annotations.length > 0 && !confirm('Discard current document and start new?')) {
+        function createNewDoc(silent = false) {
+            if (!silent && annotations.length > 0 && !confirm('Discard current document and start new?')) {
                 return;
             }
 
@@ -1445,6 +1487,15 @@
                 canvas.style.display = 'none';
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Clear PDF page canvases
+            const container = document.getElementById('docContainer');
+            if (container) {
+                const existingPageCanvases = container.querySelectorAll('.doc-page-canvas');
+                existingPageCanvases.forEach(c => c.remove());
+                container.style.width = '';
+                container.style.height = '';
             }
 
             // Hide delete button
