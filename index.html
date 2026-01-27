@@ -141,26 +141,6 @@
             background: transparent;
         }
 
-        .button-group {
-            display: flex;
-            background: var(--border-color);
-            border-radius: 6px;
-            padding: 2px;
-            gap: 2px;
-        }
-
-        .button-group .btn {
-            padding: 6px 10px;
-            background: transparent;
-            color: var(--text-secondary);
-            border-radius: 4px;
-        }
-
-        .button-group .btn.active {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
 
         /* Document Viewer */
         .doc-viewer {
@@ -586,18 +566,6 @@
             </div>
             <button class="btn btn-secondary" onclick="fitWidth()" title="Fit Width">↔️</button>
             <button class="btn btn-secondary" onclick="resetZoom()" title="Reset Zoom">🔄</button>
-            <div class="button-group" id="hFlipGroup">
-                <button class="btn" onclick="setOrientation('h', 'right')" id="btn-h-right"
-                    title="Standard Horizontal">➡️</button>
-                <button class="btn" onclick="setOrientation('h', 'left')" id="btn-h-left"
-                    title="Flip Horizontal">⬅️</button>
-            </div>
-            <div class="button-group" id="vFlipGroup">
-                <button class="btn active" onclick="setOrientation('v', 'up')" id="btn-v-up"
-                    title="Standard Vertical">⬆️</button>
-                <button class="btn" onclick="setOrientation('v', 'down')" id="btn-v-down"
-                    title="Flip Vertical">⬇️</button>
-            </div>
             <button class="btn btn-secondary" onclick="undoLast()" title="Undo">
                 <span class="btn-icon">↩</span> <span class="btn-text">Undo</span>
             </button>
@@ -755,8 +723,6 @@
         let clickX = 0;
         let clickY = 0;
         let pendingType = null;
-        let flipH = false; // Horizontal flip
-        let flipV = false; // Vertical flip
         let selectedAnnotationIndex = null; // Currently selected annotation
         let zoomLevel = 1; // Default zoom at 100%
 
@@ -896,9 +862,7 @@
 
         function applyTransform() {
             const docContainer = document.getElementById('docContainer');
-            const scaleX = flipH ? -zoomLevel : zoomLevel;
-            const scaleY = flipV ? -zoomLevel : zoomLevel;
-            const transform = `scale(${scaleX}, ${scaleY})`;
+            const transform = `scale(${zoomLevel})`;
             docContainer.style.transform = transform;
 
             // Update zoom percentage indicator
@@ -941,10 +905,6 @@
             showToast('↔️ Fit to width');
         }
 
-        function resetRotation() {
-            rotation = 0;
-            applyTransform();
-        }
 
         function handleDocClick(e) {
             // Don't show menu if clicking on an annotation
@@ -1335,10 +1295,7 @@
             annotations = [];
             uploadedFileData = null;
             currentDocumentId = null;
-            flipH = false;
-            flipV = false;
             zoomLevel = 1;
-            updateOrientationUI();
 
             // Reset UI
             document.getElementById('docName').textContent = 'No document uploaded';
@@ -1433,7 +1390,6 @@
 
                     // Set up real-time listener
                     setupRealtimeListener(docId);
-                    updateOrientationUI();
                 } else {
                     showToast('⚠ Document not found - loading local draft');
                     updateCollabStatus('● Not found (Fallback)', '#8b8fa3');
@@ -1599,9 +1555,6 @@
                     const data = JSON.parse(saved);
                     annotations = data.annotations || [];
                     zoomLevel = 1;
-                    flipH = false;
-                    flipV = false;
-                    updateOrientationUI();
 
                     if (data.fileName) {
                         document.getElementById('docName').textContent = data.fileName;
@@ -1707,10 +1660,7 @@
             // Reset state for new document
             annotations = [];
             currentDocumentId = null;
-            flipH = false;
-            flipV = false;
             zoomLevel = 1;
-            updateOrientationUI();
 
             // Reset UI for new document
             const cleanUrl = window.location.origin + window.location.pathname;
@@ -1755,27 +1705,6 @@
             event.target.value = '';
         }
 
-        function setOrientation(axis, direction) {
-            if (axis === 'h') {
-                flipH = (direction === 'left');
-            } else if (axis === 'v') {
-                flipV = (direction === 'down');
-            }
-
-            updateOrientationUI();
-            applyTransform();
-            showToast(`Orientation: ${axis === 'h' ? 'Horizontal' : 'Vertical'} ${direction}`);
-        }
-
-        function updateOrientationUI() {
-            // Update Horizontal Group
-            document.getElementById('btn-h-right').classList.toggle('active', !flipH);
-            document.getElementById('btn-h-left').classList.toggle('active', flipH);
-
-            // Update Vertical Group
-            document.getElementById('btn-v-up').classList.toggle('active', !flipV);
-            document.getElementById('btn-v-down').classList.toggle('active', flipV);
-        }
 
         function addDate(option) {
             hideMenu();
