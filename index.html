@@ -1583,7 +1583,7 @@
                     const pdf = await loadingTask.promise;
 
                     // Render all pages into one tall canvas
-                    const pageViewports = [];
+                    const pageHeights = [];
                     let totalHeight = 0;
 
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -1592,7 +1592,7 @@
                         const scale = HIGH_RES_WIDTH / viewport.width;
                         const highResViewport = page.getViewport({ scale });
 
-                        pageViewports.push({ page, viewport: highResViewport });
+                        pageHeights.push({ page, viewport: highResViewport });
                         totalHeight += highResViewport.height;
                     }
 
@@ -1603,12 +1603,18 @@
                     container.style.width = '800px';
 
                     let currentYOffset = 0;
-                    for (const { page, viewport } of pageViewports) {
+                    for (const { page, viewport } of pageHeights) {
+                        const tempCanvas = document.createElement('canvas');
+                        const tempCtx = tempCanvas.getContext('2d');
+                        tempCanvas.width = HIGH_RES_WIDTH;
+                        tempCanvas.height = viewport.height;
+
                         await page.render({
-                            canvasContext: ctx,
-                            viewport,
-                            transform: [1, 0, 0, 1, 0, currentYOffset]
+                            canvasContext: tempCtx,
+                            viewport
                         }).promise;
+
+                        ctx.drawImage(tempCanvas, 0, currentYOffset);
                         currentYOffset += viewport.height;
                     }
 
