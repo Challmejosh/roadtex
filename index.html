@@ -1856,9 +1856,13 @@
                 localStorage.setItem('roadtex_userName', userName);
                 closeUserNameModal();
 
-                // If we have a document ID, join it
+                // If we have a document ID, join it; otherwise, if there's an unsaved doc, save it now
                 if (currentDocumentId) {
                     loadDocumentFromFirebase(currentDocumentId);
+                } else if (uploadedFileData || (annotations && annotations.length > 0)) {
+                    // This ensures that when you click "Save", enter your name,
+                    // the document is actually saved and a new link is created
+                    saveDoc();
                 }
             }
         }
