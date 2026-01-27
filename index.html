@@ -141,26 +141,6 @@
             background: transparent;
         }
 
-        .button-group {
-            display: flex;
-            background: var(--border-color);
-            border-radius: 6px;
-            padding: 2px;
-            gap: 2px;
-        }
-
-        .button-group .btn {
-            padding: 6px 10px;
-            background: transparent;
-            color: var(--text-secondary);
-            border-radius: 4px;
-        }
-
-        .button-group .btn.active {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
 
         /* Document Viewer */
         .doc-viewer {
@@ -317,6 +297,42 @@
 
         .annotation:hover .delete-btn {
             display: flex;
+        }
+
+        /* Presence layer (live cursors) */
+        .presence-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .presence-cursor {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .presence-cursor-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+        }
+
+        .presence-cursor-label {
+            padding: 2px 6px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.7);
+            white-space: nowrap;
         }
 
         /* Action Menu */
@@ -586,18 +602,6 @@
             </div>
             <button class="btn btn-secondary" onclick="fitWidth()" title="Fit Width">↔️</button>
             <button class="btn btn-secondary" onclick="resetZoom()" title="Reset Zoom">🔄</button>
-            <div class="button-group" id="hFlipGroup">
-                <button class="btn" onclick="setOrientation('h', 'right')" id="btn-h-right"
-                    title="Standard Horizontal">➡️</button>
-                <button class="btn" onclick="setOrientation('h', 'left')" id="btn-h-left"
-                    title="Flip Horizontal">⬅️</button>
-            </div>
-            <div class="button-group" id="vFlipGroup">
-                <button class="btn active" onclick="setOrientation('v', 'up')" id="btn-v-up"
-                    title="Standard Vertical">⬆️</button>
-                <button class="btn" onclick="setOrientation('v', 'down')" id="btn-v-down"
-                    title="Flip Vertical">⬇️</button>
-            </div>
             <button class="btn btn-secondary" onclick="undoLast()" title="Undo">
                 <span class="btn-icon">↩</span> <span class="btn-text">Undo</span>
             </button>
@@ -622,6 +626,7 @@
         <div class="doc-container" id="docContainer">
             <canvas id="docCanvas" class="doc-canvas" style="display: none;"></canvas>
             <div class="annotations-layer" id="annotationsLayer"></div>
+            <div class="presence-layer" id="presenceLayer"></div>
         </div>
     </div>
 
@@ -755,8 +760,6 @@
         let clickX = 0;
         let clickY = 0;
         let pendingType = null;
-        let flipH = false; // Horizontal flip
-        let flipV = false; // Vertical flip
         let selectedAnnotationIndex = null; // Currently selected annotation
         let zoomLevel = 1; // Default zoom at 100%
 
@@ -764,10 +767,15 @@
         let currentDocumentId = null;
         let userName = null;
         let userId = null;
+        let userColor = null;
         let uploadedFileData = null; // Store uploaded file data
         let isSyncing = false; // Prevent sync loops
         let db = null; // Firebase Firestore instance
-        let unsubscribeListener = null; // Real-time listener
+        let unsubscribeListener = null; // Real-time listener for document metadata
+        let annotationsListenerUnsubscribe = null; // Real-time listener for annotations
+        let presenceListenerUnsubscribe = null; // Real-time listener for presence
+        let remoteCursors = {}; // Other users' cursors
+        let lastPresenceUpdate = 0;
 
         // Initialize
         // Initialize Firebase (using demo config - replace with your Firebase config)
@@ -815,6 +823,13 @@
                 localStorage.setItem('roadtex_userId', userId);
             }
 
+            // Stable color per user for cursors / presence
+            userColor = localStorage.getItem('roadtex_userColor');
+            if (!userColor) {
+                userColor = generateUserColor(userId);
+                localStorage.setItem('roadtex_userColor', userColor);
+            }
+
             // Check if we have a document ID in URL
             const urlDocId = getDocumentIdFromURL();
             if (urlDocId) {
@@ -837,6 +852,9 @@
 
             // Click on document to add annotation
             document.getElementById('docContainer').addEventListener('click', handleDocClick);
+
+            // Pointer move for live cursors (Figma-style presence)
+            document.getElementById('docContainer').addEventListener('pointermove', handlePointerMove);
 
             // Mouse wheel zoom (with Ctrl/Cmd key)
             document.getElementById('docViewer').addEventListener('wheel', (e) => {
@@ -896,9 +914,7 @@
 
         function applyTransform() {
             const docContainer = document.getElementById('docContainer');
-            const scaleX = flipH ? -zoomLevel : zoomLevel;
-            const scaleY = flipV ? -zoomLevel : zoomLevel;
-            const transform = `scale(${scaleX}, ${scaleY})`;
+            const transform = `scale(${zoomLevel})`;
             docContainer.style.transform = transform;
 
             // Update zoom percentage indicator
@@ -941,10 +957,6 @@
             showToast('↔️ Fit to width');
         }
 
-        function resetRotation() {
-            rotation = 0;
-            applyTransform();
-        }
 
         function handleDocClick(e) {
             // Don't show menu if clicking on an annotation
@@ -1039,16 +1051,29 @@
             selectedAnnotationIndex = null; // Clear selection when adding new annotation
 
             if (type === 'checkmark') {
-                // Add checkmark immediately
-                annotations.push({
+                const newAnnotation = {
                     type: 'checkmark',
                     x: clickX,
                     y: clickY,
                     value: '✓',
                     fontSize: 12
-                });
-                renderAnnotations();
-                saveToLocalStorage();
+                };
+
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef) {
+                    colRef.add({
+                        ...newAnnotation,
+                        createdBy: userName || 'Anonymous',
+                        updatedBy: userName || 'Anonymous',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    // Local-only fallback
+                    annotations.push(newAnnotation);
+                    renderAnnotations();
+                    saveToLocalStorage();
+                }
                 showToast('✓ Checkmark added');
             }
             // Date and time are handled separately via submenus
@@ -1074,17 +1099,30 @@
             const value = document.getElementById('modalInput').value.trim();
             if (!value) return;
 
-            annotations.push({
+            const newAnnotation = {
                 type: pendingType,
                 x: clickX,
                 y: clickY,
                 value: value,
                 fontSize: 12 // Default font size for all annotations
-            });
+            };
+
+            const colRef = getAnnotationsCollectionRef();
+            if (colRef) {
+                colRef.add({
+                    ...newAnnotation,
+                    createdBy: userName || 'Anonymous',
+                    updatedBy: userName || 'Anonymous',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                annotations.push(newAnnotation);
+                renderAnnotations();
+                saveToLocalStorage();
+            }
 
             closeModal();
-            renderAnnotations();
-            saveToLocalStorage();
             showToast(pendingType === 'signature' ? '🖊️ Signature added' : '✏️ Text added');
         }
 
@@ -1173,12 +1211,30 @@
                 annotations[index].fontSize = 12; // Default to 12px
             }
             annotations[index].fontSize = Math.max(12, Math.min(72, annotations[index].fontSize + delta));
-            renderAnnotations();
-            saveToLocalStorage();
+            const ann = annotations[index];
+
+            const colRef = getAnnotationsCollectionRef();
+            if (colRef && ann.id) {
+                colRef.doc(ann.id).set({
+                    fontSize: annotations[index].fontSize,
+                    updatedBy: userName || 'Anonymous',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } else {
+                renderAnnotations();
+                saveToLocalStorage();
+            }
             showToast(`Text size: ${annotations[index].fontSize}px`);
         }
 
         function deleteAnnotation(index) {
+            const ann = annotations[index];
+
+            const colRef = getAnnotationsCollectionRef();
+            if (colRef && ann && ann.id) {
+                colRef.doc(ann.id).delete();
+            }
+
             annotations.splice(index, 1);
             selectedAnnotationIndex = null;
             renderAnnotations();
@@ -1231,6 +1287,16 @@
 
             function stopDrag() {
                 isDragging = false;
+                const ann = annotations[index];
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef && ann && ann.id) {
+                    colRef.doc(ann.id).set({
+                        x: ann.x,
+                        y: ann.y,
+                        updatedBy: userName || 'Anonymous',
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                }
                 saveToLocalStorage();
                 document.removeEventListener('mousemove', drag);
                 document.removeEventListener('touchmove', drag);
@@ -1241,6 +1307,11 @@
 
         function undoLast() {
             if (annotations.length > 0) {
+                const last = annotations[annotations.length - 1];
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef && last && last.id) {
+                    colRef.doc(last.id).delete();
+                }
                 annotations.pop();
                 renderAnnotations();
                 saveToLocalStorage();
@@ -1251,6 +1322,15 @@
         function clearAll() {
             if (annotations.length === 0) return;
             if (confirm('Clear all items on this document?')) {
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef) {
+                    // Best-effort delete all server-side annotations
+                    colRef.get().then(snapshot => {
+                        const batch = db.batch();
+                        snapshot.forEach(doc => batch.delete(doc.ref));
+                        return batch.commit();
+                    }).catch(() => { /* ignore */ });
+                }
                 annotations = [];
                 renderAnnotations();
                 saveToLocalStorage();
@@ -1260,6 +1340,27 @@
 
         function generateUserId() {
             return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function generateUserColor(id) {
+            // Simple deterministic color from userId hash
+            const colors = ['#ff6b6b', '#4dabf7', '#51cf66', '#ffd43b', '#845ef7', '#f06595', '#20c997'];
+            let hash = 0;
+            for (let i = 0; i < id.length; i++) {
+                hash = (hash * 31 + id.charCodeAt(i)) | 0;
+            }
+            const index = Math.abs(hash) % colors.length;
+            return colors[index];
+        }
+
+        function getAnnotationsCollectionRef() {
+            if (!db || !currentDocumentId) return null;
+            return db.collection('documents').doc(currentDocumentId).collection('annotations');
+        }
+
+        function getPresenceCollectionRef() {
+            if (!db || !currentDocumentId) return null;
+            return db.collection('documents').doc(currentDocumentId).collection('presence');
         }
 
         function updateCollabStatus(text, color) {
@@ -1286,18 +1387,15 @@
             }
 
             try {
-                // Create document ID if doesn't exist
+                // Ensure document exists in Firestore
                 if (!currentDocumentId) {
                     currentDocumentId = generateDocumentId();
-                    // Update URL without reload
                     const newUrl = window.location.pathname + '?doc=' + currentDocumentId;
                     window.history.pushState({}, '', newUrl);
                     document.getElementById('deleteBtn').style.display = 'block';
                 }
 
                 const docData = {
-                    annotations: annotations,
-                    zoomLevel: zoomLevel,
                     fileName: document.getElementById('docName').textContent,
                     fileData: uploadedFileData, // Base64 or URL
                     lastModified: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1335,10 +1433,7 @@
             annotations = [];
             uploadedFileData = null;
             currentDocumentId = null;
-            flipH = false;
-            flipV = false;
             zoomLevel = 1;
-            updateOrientationUI();
 
             // Reset UI
             document.getElementById('docName').textContent = 'No document uploaded';
@@ -1360,6 +1455,14 @@
             if (unsubscribeListener) {
                 unsubscribeListener();
                 unsubscribeListener = null;
+            }
+            if (annotationsListenerUnsubscribe) {
+                annotationsListenerUnsubscribe();
+                annotationsListenerUnsubscribe = null;
+            }
+            if (presenceListenerUnsubscribe) {
+                presenceListenerUnsubscribe();
+                presenceListenerUnsubscribe = null;
             }
 
             applyTransform();
@@ -1411,7 +1514,8 @@
 
                 if (doc.exists) {
                     const data = doc.data();
-                    annotations = data.annotations || [];
+                    // Annotations now come from subcollection listener
+                    annotations = [];
                     zoomLevel = 1;
 
                     if (data.fileName) {
@@ -1431,9 +1535,10 @@
                     document.getElementById('deleteBtn').style.display = 'block';
                     updateCollabStatus('● Connected', '#2ec4b6');
 
-                    // Set up real-time listener
+                    // Set up real-time listeners
                     setupRealtimeListener(docId);
-                    updateOrientationUI();
+                    setupAnnotationsListener(docId);
+                    setupPresenceListener(docId);
                 } else {
                     showToast('⚠ Document not found - loading local draft');
                     updateCollabStatus('● Not found (Fallback)', '#8b8fa3');
@@ -1527,40 +1632,101 @@
             const docRef = db.collection('documents').doc(docId);
 
             unsubscribeListener = docRef.onSnapshot((doc) => {
-                if (doc.exists && !isSyncing) {
+                if (doc.exists) {
                     const data = doc.data();
 
-                    // Check if file data changed (e.g. someone uploaded a different file)
+                    // File data and metadata sync
                     if (data.fileData && (!uploadedFileData || JSON.stringify(data.fileData) !== JSON.stringify(uploadedFileData))) {
-                        isSyncing = true;
                         uploadedFileData = data.fileData;
                         document.getElementById('docName').textContent = data.fileName || 'Document';
-                        renderFileToCanvas(data.fileData).then(() => {
-                            isSyncing = false;
-                        });
+                        renderFileToCanvas(data.fileData);
                     }
 
-                    // Only update if someone else modified it
-                    const dataJson = JSON.stringify(data.annotations || []);
-                    const currentJson = JSON.stringify(annotations);
-
-                    if (dataJson !== currentJson) {
-                        isSyncing = true;
-                        annotations = data.annotations || [];
-                        zoomLevel = 1;
-
-                        applyTransform();
-                        renderAnnotations();
-
-                        // Update collaborators list
+                    // Collaborators metadata (fallback if presence not available)
+                    if (data.collaborators) {
                         updateCollaboratorsList(data.collaborators || []);
-
-                        setTimeout(() => { isSyncing = false; }, 100);
                     }
                 }
             }, (error) => {
                 console.error('Listener error:', error);
                 updateCollabStatus('● Error', '#e63946');
+            });
+        }
+
+        function setupAnnotationsListener(docId) {
+            if (!db || !docId) return;
+
+            if (annotationsListenerUnsubscribe) {
+                annotationsListenerUnsubscribe();
+            }
+
+            const colRef = db.collection('documents').doc(docId).collection('annotations');
+
+            annotationsListenerUnsubscribe = colRef.onSnapshot((snapshot) => {
+                let changed = false;
+
+                snapshot.docChanges().forEach((change) => {
+                    const data = { ...change.doc.data(), id: change.doc.id };
+                    if (change.type === 'added') {
+                        if (!annotations.find(a => a.id === data.id)) {
+                            annotations.push(data);
+                            changed = true;
+                        }
+                    } else if (change.type === 'modified') {
+                        const idx = annotations.findIndex(a => a.id === data.id);
+                        if (idx !== -1) {
+                            annotations[idx] = { ...annotations[idx], ...data };
+                            changed = true;
+                        }
+                    } else if (change.type === 'removed') {
+                        const beforeLen = annotations.length;
+                        annotations = annotations.filter(a => a.id !== data.id);
+                        if (annotations.length !== beforeLen) {
+                            changed = true;
+                        }
+                    }
+                });
+
+                if (changed) {
+                    applyTransform();
+                    renderAnnotations();
+                }
+            }, (error) => {
+                console.error('Annotations listener error:', error);
+            });
+        }
+
+        function setupPresenceListener(docId) {
+            if (!db || !docId) return;
+
+            if (presenceListenerUnsubscribe) {
+                presenceListenerUnsubscribe();
+            }
+
+            const presenceRef = db.collection('documents').doc(docId).collection('presence');
+
+            presenceListenerUnsubscribe = presenceRef.onSnapshot((snapshot) => {
+                const now = Date.now();
+                remoteCursors = {};
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (doc.id === userId) return;
+
+                    const lastSeen = data.lastSeen?.toMillis ? data.lastSeen.toMillis() : (data.lastSeen || now);
+                    if ((now - lastSeen) > 30000) return; // stale
+
+                    remoteCursors[doc.id] = data;
+                });
+
+                renderPresenceCursors();
+
+                const activeCount = Object.keys(remoteCursors).length + 1; // include self
+                if (activeCount > 1) {
+                    updateCollabStatus(`● ${activeCount} collaborators`, '#2ec4b6');
+                }
+            }, (error) => {
+                console.error('Presence listener error:', error);
             });
         }
 
@@ -1597,11 +1763,8 @@
             if (saved) {
                 try {
                     const data = JSON.parse(saved);
-                    annotations = data.annotations || [];
+                    annotations = (data.annotations || []).map(a => ({ ...a }));
                     zoomLevel = 1;
-                    flipH = false;
-                    flipV = false;
-                    updateOrientationUI();
 
                     if (data.fileName) {
                         document.getElementById('docName').textContent = data.fileName;
@@ -1696,6 +1859,56 @@
             document.getElementById('annotationCount').textContent = total;
         }
 
+        function handlePointerMove(e) {
+            const container = document.getElementById('docContainer');
+            const rect = container.getBoundingClientRect();
+            const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+            const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+            // Throttle presence updates
+            const now = Date.now();
+            if (now - lastPresenceUpdate < 80) return;
+            lastPresenceUpdate = now;
+
+            const presenceRef = getPresenceCollectionRef();
+            if (!presenceRef) return;
+
+            presenceRef.doc(userId).set({
+                userName: userName || 'Anonymous',
+                color: userColor,
+                cursorX: Math.max(0, Math.min(100, xPercent)),
+                cursorY: Math.max(0, Math.min(100, yPercent)),
+                lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(() => { /* ignore */ });
+        }
+
+        function renderPresenceCursors() {
+            const layer = document.getElementById('presenceLayer');
+            if (!layer) return;
+
+            layer.innerHTML = '';
+
+            Object.values(remoteCursors).forEach(cursor => {
+                const el = document.createElement('div');
+                el.className = 'presence-cursor';
+                el.style.left = (cursor.cursorX || 0) + '%';
+                el.style.top = (cursor.cursorY || 0) + '%';
+
+                const dot = document.createElement('div');
+                dot.className = 'presence-cursor-dot';
+                dot.style.backgroundColor = cursor.color || '#4dabf7';
+
+                const label = document.createElement('div');
+                label.className = 'presence-cursor-label';
+                label.style.backgroundColor = (cursor.color || '#4dabf7') + 'dd';
+                label.textContent = cursor.userName || 'Guest';
+
+                el.appendChild(dot);
+                el.appendChild(label);
+                layer.appendChild(el);
+            });
+        }
+
         function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -1707,10 +1920,7 @@
             // Reset state for new document
             annotations = [];
             currentDocumentId = null;
-            flipH = false;
-            flipV = false;
             zoomLevel = 1;
-            updateOrientationUI();
 
             // Reset UI for new document
             const cleanUrl = window.location.origin + window.location.pathname;
@@ -1755,27 +1965,6 @@
             event.target.value = '';
         }
 
-        function setOrientation(axis, direction) {
-            if (axis === 'h') {
-                flipH = (direction === 'left');
-            } else if (axis === 'v') {
-                flipV = (direction === 'down');
-            }
-
-            updateOrientationUI();
-            applyTransform();
-            showToast(`Orientation: ${axis === 'h' ? 'Horizontal' : 'Vertical'} ${direction}`);
-        }
-
-        function updateOrientationUI() {
-            // Update Horizontal Group
-            document.getElementById('btn-h-right').classList.toggle('active', !flipH);
-            document.getElementById('btn-h-left').classList.toggle('active', flipH);
-
-            // Update Vertical Group
-            document.getElementById('btn-v-up').classList.toggle('active', !flipV);
-            document.getElementById('btn-v-down').classList.toggle('active', flipV);
-        }
 
         function addDate(option) {
             hideMenu();
@@ -1783,15 +1972,28 @@
 
             if (option === 'today') {
                 const today = new Date().toLocaleDateString();
-                annotations.push({
+                const newAnnotation = {
                     type: 'date',
                     x: clickX,
                     y: clickY,
                     value: today,
                     fontSize: 12
-                });
-                renderAnnotations();
-                saveToLocalStorage();
+                };
+
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef) {
+                    colRef.add({
+                        ...newAnnotation,
+                        createdBy: userName || 'Anonymous',
+                        updatedBy: userName || 'Anonymous',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    annotations.push(newAnnotation);
+                    renderAnnotations();
+                    saveToLocalStorage();
+                }
                 showToast('📅 Date added');
             } else if (option === 'select') {
                 // Show date picker modal
@@ -1806,17 +2008,30 @@
             const selectedDate = new Date(dateInput.value);
             const formattedDate = selectedDate.toLocaleDateString();
 
-            annotations.push({
+            const newAnnotation = {
                 type: 'date',
                 x: clickX,
                 y: clickY,
                 value: formattedDate,
                 fontSize: 12
-            });
+            };
+
+            const colRef = getAnnotationsCollectionRef();
+            if (colRef) {
+                colRef.add({
+                    ...newAnnotation,
+                    createdBy: userName || 'Anonymous',
+                    updatedBy: userName || 'Anonymous',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                annotations.push(newAnnotation);
+                renderAnnotations();
+                saveToLocalStorage();
+            }
 
             closeDateModal();
-            renderAnnotations();
-            saveToLocalStorage();
             showToast('📅 Date added');
         }
 
@@ -1831,15 +2046,28 @@
             if (option === 'now') {
                 const now = new Date();
                 const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                annotations.push({
+                const newAnnotation = {
                     type: 'time',
                     x: clickX,
                     y: clickY,
                     value: timeString,
                     fontSize: 12
-                });
-                renderAnnotations();
-                saveToLocalStorage();
+                };
+
+                const colRef = getAnnotationsCollectionRef();
+                if (colRef) {
+                    colRef.add({
+                        ...newAnnotation,
+                        createdBy: userName || 'Anonymous',
+                        updatedBy: userName || 'Anonymous',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    annotations.push(newAnnotation);
+                    renderAnnotations();
+                    saveToLocalStorage();
+                }
                 showToast('🕐 Time added');
             } else if (option === 'manual') {
                 // Show time input modal
@@ -1864,17 +2092,30 @@
             date.setHours(parseInt(hours), parseInt(minutes));
             const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            annotations.push({
+            const newAnnotation = {
                 type: 'time',
                 x: clickX,
                 y: clickY,
                 value: timeString,
                 fontSize: 12
-            });
+            };
+
+            const colRef = getAnnotationsCollectionRef();
+            if (colRef) {
+                colRef.add({
+                    ...newAnnotation,
+                    createdBy: userName || 'Anonymous',
+                    updatedBy: userName || 'Anonymous',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                annotations.push(newAnnotation);
+                renderAnnotations();
+                saveToLocalStorage();
+            }
 
             closeTimeModal();
-            renderAnnotations();
-            saveToLocalStorage();
             showToast('🕐 Time added');
         }
 
