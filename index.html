@@ -1562,6 +1562,10 @@
 
             updateCollabStatus('● Rendering...', '#4895ef');
 
+            // Always remove any existing per-page canvases before rendering
+            const existingPageCanvases = container.querySelectorAll('.doc-page-canvas');
+            existingPageCanvases.forEach(c => c.remove());
+
             try {
                 if (fileData.type === 'pdf') {
                     let pdfSource = fileData.data;
@@ -1582,43 +1586,39 @@
                     const loadingTask = pdfjsLib.getDocument(pdfSource);
                     const pdf = await loadingTask.promise;
 
-                    // Render all pages into one tall canvas
-                    const pageHeights = [];
-                    let totalHeight = 0;
+                    // Hide the single-page canvas for multi-page PDFs
+                    canvas.style.display = 'none';
 
+                    // Maintain standard base width for annotations / pages
+                    container.style.width = '800px';
+
+                    const annotationsLayerEl = document.getElementById('annotationsLayer');
+
+                    // Render each page into its own canvas stacked vertically
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                         const page = await pdf.getPage(pageNum);
                         const viewport = page.getViewport({ scale: 1 });
                         const scale = HIGH_RES_WIDTH / viewport.width;
                         const highResViewport = page.getViewport({ scale });
 
-                        pageHeights.push({ page, viewport: highResViewport });
-                        totalHeight += highResViewport.height;
-                    }
+                        const pageCanvas = document.createElement('canvas');
+                        pageCanvas.className = 'doc-canvas doc-page-canvas';
+                        pageCanvas.width = HIGH_RES_WIDTH;
+                        pageCanvas.height = highResViewport.height;
 
-                    canvas.width = HIGH_RES_WIDTH;
-                    canvas.height = totalHeight;
+                        // Insert before the annotations layer so annotations stay on top
+                        if (annotationsLayerEl && annotationsLayerEl.parentNode === container) {
+                            container.insertBefore(pageCanvas, annotationsLayerEl);
+                        } else {
+                            container.appendChild(pageCanvas);
+                        }
 
-                    // Maintain standard base width for annotations
-                    container.style.width = '800px';
-
-                    let currentYOffset = 0;
-                    for (const { page, viewport } of pageHeights) {
-                        const tempCanvas = document.createElement('canvas');
-                        const tempCtx = tempCanvas.getContext('2d');
-                        tempCanvas.width = HIGH_RES_WIDTH;
-                        tempCanvas.height = viewport.height;
-
+                        const pageCtx = pageCanvas.getContext('2d');
                         await page.render({
-                            canvasContext: tempCtx,
-                            viewport
+                            canvasContext: pageCtx,
+                            viewport: highResViewport
                         }).promise;
-
-                        ctx.drawImage(tempCanvas, 0, currentYOffset);
-                        currentYOffset += viewport.height;
                     }
-
-                    canvas.style.display = 'block';
                 } else if (fileData.type === 'image') {
                     const img = new Image();
                     img.onload = () => {
