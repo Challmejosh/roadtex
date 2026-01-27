@@ -591,6 +591,9 @@
                 title="Delete Document">
                 <span class="btn-icon">🗑️</span> <span class="btn-text">Delete</span>
             </button>
+            <button class="btn btn-secondary" onclick="deleteAllDocs()" title="Delete All Documents">
+                <span class="btn-icon">🗑️</span> <span class="btn-text">Delete All</span>
+            </button>
             <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()" title="Upload">
                 <span class="btn-icon">📤</span> <span class="btn-text">Upload</span>
             </button>
@@ -1486,6 +1489,56 @@
                 console.error('Error deleting document:', error);
                 showToast('⚠ Delete failed');
                 updateCollabStatus('● Error deleting', '#e63946');
+            }
+        }
+
+        async function deleteAllDocs() {
+            if (!db) {
+                showToast('⚠ Cannot delete all while offline');
+                return;
+            }
+
+            const really = confirm('Permanently delete ALL stored documents from the cloud? This CANNOT be undone.');
+            if (!really) return;
+
+            try {
+                updateCollabStatus('● Deleting all documents...', '#e63946');
+
+                const snapshot = await db.collection('documents').get();
+                if (snapshot.empty) {
+                    showToast('No documents to delete');
+                } else {
+                    // Firestore batches are limited; keep it simple but safe
+                    let batch = db.batch();
+                    let counter = 0;
+
+                    snapshot.forEach(doc => {
+                        batch.delete(doc.ref);
+                        counter++;
+                        if (counter === 400) {
+                            batch.commit();
+                            batch = db.batch();
+                            counter = 0;
+                        }
+                    });
+
+                    if (counter > 0) {
+                        await batch.commit();
+                    }
+
+                    // Clear local draft
+                    localStorage.removeItem('roadtex_document');
+
+                    // Reset current UI state
+                    createNewDoc();
+                    showToast('🗑️ All documents deleted');
+                }
+
+                updateCollabStatus('● All documents deleted', '#2ec4b6');
+            } catch (error) {
+                console.error('Error deleting all documents:', error);
+                showToast('⚠ Failed to delete all documents');
+                updateCollabStatus('● Error deleting all', '#e63946');
             }
         }
 
