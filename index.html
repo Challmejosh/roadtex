@@ -12,7 +12,7 @@
     <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+     const pdfjsLib = window['pdfjs-dist/build/pdf'];
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
     <style>
@@ -593,6 +593,62 @@
                 display: none;
             }
         }
+
+        /* Dashboard */
+        .dashboard {
+            display: none;
+            padding: 40px 20px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            position: fixed;
+            top: 53px;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            overflow-y: auto;
+        }
+        
+        .dashboard.show {
+            display: grid;
+        }
+
+        .doc-card {
+            background: var(--bg-card);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 200px;
+        }
+
+        .doc-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-blue);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .doc-card-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .doc-card-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 16px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .doc-card-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
     </style>
 </head>
 
@@ -601,20 +657,23 @@
     <header class="header">
         <div class="header-left">
             <div class="logo">Roadtex</div>
+            <button class="btn btn-secondary" id="backToDashBtn" onclick="showDashboard()" style="display: none; margin-left: 10px;">
+                <span class="btn-icon">⬅</span> Dashboard
+            </button>
             <div class="doc-name" id="docName">No document uploaded</div>
         </div>
         <div class="header-actions">
-            <button class="btn btn-secondary" onclick="createNewDoc()" title="New Document">
+            <button class="btn btn-secondary" onclick="createNewDoc()" title="New Document" id="newDocBtn">
                 <span class="btn-icon">➕</span> <span class="btn-text">New</span>
             </button>
             <button class="btn btn-secondary" onclick="deleteDoc()" id="deleteBtn" style="display: none;"
                 title="Delete Document">
                 <span class="btn-icon">🗑️</span> <span class="btn-text">Delete</span>
             </button>
-            <button class="btn btn-secondary" onclick="deleteAllDocs()" title="Delete All Documents">
+            <button class="btn btn-secondary" onclick="deleteAllDocs()" title="Delete All Documents" id="deleteAllBtn">
                 <span class="btn-icon">🗑️</span> <span class="btn-text">Delete All</span>
             </button>
-            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()" title="Upload">
+            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()" title="Upload" id="uploadBtn">
                 <span class="btn-icon">📤</span> <span class="btn-text">Upload</span>
             </button>
             <div class="zoom-controls">
@@ -643,6 +702,9 @@
     </header>
 
     <!-- Document Tabs - Removed for single document upload -->
+
+    <!-- Dashboard -->
+    <div class="dashboard" id="dashboardGrid"></div>
 
     <!-- Document Viewer -->
     <div class="doc-viewer" id="docViewer">
@@ -746,6 +808,52 @@
         </div>
     </div>
 
+    <!-- Document Name Modal -->
+    <div class="modal-overlay" id="docNameModal">
+        <div class="modal">
+            <div class="modal-title">Document Name</div>
+            <input type="text" class="modal-input" id="docNameInput" placeholder="Enter document name">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeDocNameModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmDocName()">Upload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Role Selection Modal -->
+    <div class="modal-overlay" id="roleModal" style="display: flex; z-index: 1000;">
+        <div class="modal">
+            <div class="modal-title">Welcome to Roadtex</div>
+            <div id="roleSelection">
+                <p style="margin-bottom: 20px; color: var(--text-secondary);">Please select your role to continue:</p>
+                <div class="modal-actions" style="justify-content: center;">
+                    <button class="btn btn-secondary" onclick="showAdminLogin()">Admin</button>
+                    <button class="btn btn-primary" onclick="showUserLogin()">Not Admin</button>
+                </div>
+            </div>
+            
+            <!-- Admin Login -->
+            <div id="adminLoginForm" style="display: none;">
+                <div class="modal-title">Admin Access</div>
+                <input type="password" class="modal-input" id="adminPassInput" placeholder="Enter Admin Password">
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="resetRoleModal()">Back</button>
+                    <button class="btn btn-primary" onclick="verifyAdmin()">Login</button>
+                </div>
+            </div>
+
+            <!-- User Login -->
+            <div id="userLoginForm" style="display: none;">
+                <div class="modal-title">User Access</div>
+                <input type="text" class="modal-input" id="userNameLoginInput" placeholder="Enter Your Name">
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="resetRoleModal()">Back</button>
+                    <button class="btn btn-primary" onclick="startAsUser()">Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Share Modal -->
     <div class="modal-overlay" id="shareModal">
         <div class="modal">
@@ -792,6 +900,7 @@
         let userId = null;
         let userColor = null;
         let uploadedFileData = null; // Store uploaded file data
+        let pendingUploadFile = null; // Store file data pending name confirmation
         let isSyncing = false; // Prevent sync loops
         let db = null; // Firebase Firestore instance
         let unsubscribeListener = null; // Real-time listener for document metadata
@@ -799,6 +908,9 @@
         let presenceListenerUnsubscribe = null; // Real-time listener for presence
         let remoteCursors = {}; // Other users' cursors
         let lastPresenceUpdate = 0;
+        
+        let isAdmin = false;
+        const ADMIN_PASS = 'adminPass';
 
         // Initialize
         // Initialize Firebase (using demo config - replace with your Firebase config)
@@ -853,14 +965,18 @@
                 localStorage.setItem('roadtex_userColor', userColor);
             }
 
-            // Check if we have a document ID in URL
-            const urlDocId = getDocumentIdFromURL();
-            if (urlDocId) {
-                currentDocumentId = urlDocId;
-                loadDocumentFromFirebase(urlDocId);
-            } else {
-                // Landing without ?doc should be a new document
-                createNewDoc(true);
+            // Check for stored role and auto-login
+            const storedRole = localStorage.getItem('roadtex_role');
+            if (storedRole) {
+                if (storedRole === 'admin') {
+                    isAdmin = true;
+                    userName = 'Admin';
+                } else {
+                    isAdmin = false;
+                }
+                document.getElementById('roleModal').style.display = 'none';
+                setupUIForRole();
+                initializeAppFlow();
             }
 
             // Start with empty document
@@ -925,6 +1041,14 @@
 
             document.getElementById('userNameInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') saveUserName();
+            });
+
+            document.getElementById('docNameInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') confirmDocName();
+            });
+            
+            document.getElementById('adminPassInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') verifyAdmin();
             });
         });
 
@@ -1062,6 +1186,125 @@
             submenu.classList.add('show');
         }
 
+        // Role Management
+        function showAdminLogin() {
+            document.getElementById('roleSelection').style.display = 'none';
+            document.getElementById('adminLoginForm').style.display = 'block';
+            setTimeout(() => document.getElementById('adminPassInput').focus(), 100);
+        }
+
+        function showUserLogin() {
+            document.getElementById('roleSelection').style.display = 'none';
+            document.getElementById('userLoginForm').style.display = 'block';
+            setTimeout(() => document.getElementById('userNameLoginInput').focus(), 100);
+        }
+
+        function resetRoleModal() {
+            document.getElementById('roleSelection').style.display = 'block';
+            document.getElementById('adminLoginForm').style.display = 'none';
+            document.getElementById('userLoginForm').style.display = 'none';
+        }
+
+        function verifyAdmin() {
+            const pass = document.getElementById('adminPassInput').value;
+            if (pass === ADMIN_PASS) {
+                isAdmin = true;
+                userName = 'Admin'; 
+                localStorage.setItem('roadtex_role', 'admin');
+                localStorage.setItem('roadtex_userName', 'Admin');
+                document.getElementById('roleModal').style.display = 'none';
+                setupUIForRole();
+                initializeAppFlow();
+            } else {
+                alert('Incorrect password');
+            }
+        }
+
+        function startAsUser() {
+            const name = document.getElementById('userNameLoginInput').value.trim();
+            if (name) {
+                isAdmin = false;
+                userName = name;
+                localStorage.setItem('roadtex_userName', userName);
+                localStorage.setItem('roadtex_role', 'user');
+                document.getElementById('roleModal').style.display = 'none';
+                setupUIForRole();
+                initializeAppFlow();
+            } else {
+                alert('Please enter your name');
+            }
+        }
+
+        function setupUIForRole() {
+            // Upload button visibility
+            document.getElementById('uploadBtn').style.display = isAdmin ? 'flex' : 'none';
+            // Delete All button visibility
+            document.getElementById('deleteAllBtn').style.display = isAdmin ? 'flex' : 'none';
+            // New Doc button visibility
+            document.getElementById('newDocBtn').style.display = isAdmin ? 'flex' : 'none';
+        }
+
+        function initializeAppFlow() {
+            const urlDocId = getDocumentIdFromURL();
+            if (urlDocId) {
+                currentDocumentId = urlDocId;
+                loadDocumentFromFirebase(urlDocId);
+            } else {
+                showDashboard();
+            }
+        }
+
+        async function showDashboard() {
+            // Hide viewer, show dashboard
+            document.getElementById('docViewer').style.display = 'none';
+            document.getElementById('dashboardGrid').classList.add('show');
+            document.getElementById('backToDashBtn').style.display = 'none';
+            document.getElementById('docName').textContent = 'Dashboard';
+            
+            // Clear current doc state
+            currentDocumentId = null;
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.pushState({}, '', cleanUrl);
+
+            // Fetch documents
+            const grid = document.getElementById('dashboardGrid');
+            grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-secondary);">Loading documents...</div>';
+
+            try {
+                const snapshot = await db.collection('documents').orderBy('lastModified', 'desc').get();
+                grid.innerHTML = '';
+                
+                if (snapshot.empty) {
+                    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-secondary);">No documents found.</div>';
+                    return;
+                }
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const card = document.createElement('div');
+                    card.className = 'doc-card';
+                    card.onclick = () => {
+                        window.history.pushState({}, '', '?doc=' + doc.id);
+                        currentDocumentId = doc.id;
+                        loadDocumentFromFirebase(doc.id);
+                    };
+                    
+                    const date = data.lastModified ? new Date(data.lastModified.toMillis()).toLocaleDateString() : 'Unknown date';
+                    
+                    card.innerHTML = `
+                        <div class="doc-card-icon">${data.fileData?.type === 'pdf' ? '📄' : '🖼️'}</div>
+                        <div class="doc-card-title">${data.fileName || 'Untitled'}</div>
+                        <div class="doc-card-meta">Modified: ${date}</div>
+                        <div class="doc-card-meta">By: ${data.lastModifiedBy || 'Unknown'}</div>
+                    `;
+                    grid.appendChild(card);
+                });
+            } catch (error) {
+                console.error("Error loading dashboard:", error);
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--accent-red);">Error loading documents.</div>';
+            }
+        }
+
         function addAnnotation(type) {
             hideMenu();
             selectedAnnotationIndex = null; // Clear selection when adding new annotation
@@ -1080,6 +1323,7 @@
                     colRef.add({
                         ...newAnnotation,
                         createdBy: userName || 'Anonymous',
+                        userId: userId,
                         updatedBy: userName || 'Anonymous',
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1128,6 +1372,7 @@
                 colRef.add({
                     ...newAnnotation,
                     createdBy: userName || 'Anonymous',
+                    userId: userId,
                     updatedBy: userName || 'Anonymous',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1152,6 +1397,11 @@
             layer.innerHTML = '';
 
             annotations.forEach((ann, index) => {
+                // Filter: If not admin, only show my own annotations
+                if (!isAdmin && ann.userId && ann.userId !== userId) {
+                    return;
+                }
+
                 const el = document.createElement('div');
                 el.className = 'annotation ' + ann.type;
                 if (selectedAnnotationIndex === index) {
@@ -1480,6 +1730,11 @@
             currentDocumentId = null;
             zoomLevel = 1;
 
+            // Switch to Viewer View
+            document.getElementById('dashboardGrid').classList.remove('show');
+            document.getElementById('docViewer').style.display = 'flex';
+            document.getElementById('backToDashBtn').style.display = 'flex';
+
             // Reset UI
             document.getElementById('docName').textContent = 'No document uploaded';
             const canvas = document.getElementById('docCanvas');
@@ -1638,6 +1893,11 @@
                     currentDocumentId = docId;
                     document.getElementById('deleteBtn').style.display = 'block';
                     updateCollabStatus('● Connected', '#2ec4b6');
+
+                    // UI updates
+                    document.getElementById('dashboardGrid').classList.remove('show');
+                    document.getElementById('docViewer').style.display = 'flex';
+                    document.getElementById('backToDashBtn').style.display = 'flex';
 
                     // Set up real-time listeners
                     setupRealtimeListener(docId);
@@ -1825,6 +2085,8 @@
         }
 
         function setupPresenceListener(docId) {
+            if (!isAdmin) return; // Only admin sees presence
+
             if (!db || !docId) return;
 
             if (presenceListenerUnsubscribe) {
@@ -1859,6 +2121,8 @@
         }
 
         function updateCollaboratorsList(collaborators) {
+            if (!isAdmin) return; // Only admin sees collaborators
+
             const container = document.getElementById('collaboratorsContainer');
             if (!container) return;
 
@@ -2041,10 +2305,10 @@
             });
         }
 
-        function handleFileUpload(event) {
+        async function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
-
+            
             const fileName = file.name;
             const fileType = file.type;
             const docContainer = document.getElementById('docContainer');
@@ -2076,18 +2340,27 @@
             const reader = new FileReader();
             reader.onload = function (e) {
                 const fileURL = e.target.result;
-
-                uploadedFileData = {
+                
+                const newFileData = {
                     type: (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) ? 'pdf' : 'image',
                     data: fileURL,
                     fileName: fileName
                 };
 
-                renderFileToCanvas(uploadedFileData);
-                saveToLocalStorage();
-                showToast(`✓ ${uploadedFileData.type.toUpperCase()} uploaded`);
+                // If Admin and on Dashboard (no current document), prompt for name and save immediately
+                if (isAdmin && !currentDocumentId) {
+                    pendingUploadFile = newFileData;
+                    document.getElementById('docNameInput').value = fileName;
+                    document.getElementById('docNameModal').classList.add('show');
+                    setTimeout(() => document.getElementById('docNameInput').focus(), 100);
+                    return;
 
-                if (currentDocumentId) {
+                } else {
+                    // Normal flow (or inside a doc)
+                    uploadedFileData = newFileData;
+                    renderFileToCanvas(uploadedFileData);
+                    saveToLocalStorage();
+                    showToast(`✓ ${uploadedFileData.type.toUpperCase()} uploaded`);
                     saveDoc();
                 }
             };
@@ -2097,6 +2370,40 @@
             event.target.value = '';
         }
 
+        function closeDocNameModal() {
+            document.getElementById('docNameModal').classList.remove('show');
+            pendingUploadFile = null;
+        }
+
+        function confirmDocName() {
+            const customName = document.getElementById('docNameInput').value.trim();
+            if (!customName) {
+                showToast('⚠ Please enter a name');
+                return;
+            }
+            
+            if (!pendingUploadFile) return;
+
+            // Save to Firestore
+            const docData = {
+                fileName: customName,
+                fileData: pendingUploadFile,
+                lastModified: firebase.firestore.FieldValue.serverTimestamp(),
+                lastModifiedBy: userName,
+                collaborators: []
+            };
+
+            updateCollabStatus('● Uploading...', '#4895ef');
+            db.collection('documents').add(docData).then(() => {
+                showToast('✓ Document uploaded');
+                showDashboard(); // Refresh grid
+            }).catch(err => {
+                console.error(err);
+                showToast('⚠ Upload failed');
+            });
+            
+            closeDocNameModal();
+        }
 
         function addDate(option) {
             hideMenu();
@@ -2117,6 +2424,7 @@
                     colRef.add({
                         ...newAnnotation,
                         createdBy: userName || 'Anonymous',
+                        userId: userId,
                         updatedBy: userName || 'Anonymous',
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2153,6 +2461,7 @@
                 colRef.add({
                     ...newAnnotation,
                     createdBy: userName || 'Anonymous',
+                    userId: userId,
                     updatedBy: userName || 'Anonymous',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2191,6 +2500,7 @@
                     colRef.add({
                         ...newAnnotation,
                         createdBy: userName || 'Anonymous',
+                        userId: userId,
                         updatedBy: userName || 'Anonymous',
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -2237,6 +2547,7 @@
                 colRef.add({
                     ...newAnnotation,
                     createdBy: userName || 'Anonymous',
+                    userId: userId,
                     updatedBy: userName || 'Anonymous',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
