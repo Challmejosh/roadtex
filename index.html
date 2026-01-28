@@ -1242,6 +1242,11 @@
             document.getElementById('deleteAllBtn').style.display = isAdmin ? 'flex' : 'none';
             // New Doc button visibility
             document.getElementById('newDocBtn').style.display = isAdmin ? 'flex' : 'none';
+
+            // Update delete button based on current context
+            if (currentDocumentId) {
+                document.getElementById('deleteBtn').style.display = isAdmin ? 'flex' : 'none';
+            }
         }
 
         function initializeAppFlow() {
@@ -1259,6 +1264,7 @@
             document.getElementById('docViewer').style.display = 'none';
             document.getElementById('dashboardGrid').classList.add('show');
             document.getElementById('backToDashBtn').style.display = 'none';
+            document.getElementById('deleteBtn').style.display = 'none';
             document.getElementById('docName').textContent = 'Dashboard';
             
             // Clear current doc state
@@ -1785,12 +1791,18 @@
             if (!confirm('Permanently delete this document from the cloud? This cannot be undone.')) {
                 return;
             }
+            if (!db) {
+                showToast("⚠ Cannot delete while offline");
+                return;
+            }
+
 
             try {
                 updateCollabStatus('● Deleting...', '#e63946');
                 await db.collection('documents').doc(currentDocumentId).delete();
+                localStorage.removeItem('roadtex_document');
                 showToast('🗑️ Document deleted');
-                createNewDoc(); // Reset to fresh state
+                showDashboard(); // Return to dashboard
             } catch (error) {
                 console.error('Error deleting document:', error);
                 showToast('⚠ Delete failed');
@@ -1818,15 +1830,17 @@
                     let batch = db.batch();
                     let counter = 0;
 
-                    snapshot.forEach(doc => {
+                    for (const doc of snapshot.docs) {
                         batch.delete(doc.ref);
                         counter++;
+
+                        // Commit every 400 deletes safely
                         if (counter === 400) {
-                            batch.commit();
+                            await batch.commit(); 
                             batch = db.batch();
                             counter = 0;
                         }
-                    });
+                    }
 
                     if (counter > 0) {
                         await batch.commit();
@@ -1836,7 +1850,7 @@
                     localStorage.removeItem('roadtex_document');
 
                     // Reset current UI state
-                    createNewDoc();
+                    showDashboard();
                     showToast('🗑️ All documents deleted');
                 }
 
@@ -1891,7 +1905,7 @@
                     renderAnnotations();
 
                     currentDocumentId = docId;
-                    document.getElementById('deleteBtn').style.display = 'block';
+                    document.getElementById('deleteBtn').style.display = isAdmin ? 'flex' : 'none';
                     updateCollabStatus('● Connected', '#2ec4b6');
 
                     // UI updates
